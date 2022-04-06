@@ -34,3 +34,8 @@
 *.db-shm
 *.db
 *.db-wal
+*.ipch
+.vs/EntityComponentSystem/v17/.suo
+*.log
+*.txt
+*.recipe
