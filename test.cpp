@@ -1,4 +1,5 @@
 ﻿#include "ecs.h"
+#include "ecs_hierarchy.h"
 #include <cassert>
 
 struct TestComponent
@@ -35,6 +36,35 @@ int main()
 	componentPool.Remove(newEntity);
 	assert(!componentPool.CheckValidationOf(comp));
 	assert(!componentPool.CheckRelationBetween(newEntity, comp));
+	/////////////////////////////////////////////
+	sy::ecs::ComponentPool<sy::ecs::HierarchyComponent> hierarchyPool;
+
+	std::vector<sy::ecs::Entity> entities;
+	sy::ecs::Entity root = sy::ecs::GenerateEntity();
+	hierarchyPool.Create(root);
+
+	for (int idx = 0; idx < 6; ++idx)
+	{
+		entities.push_back(sy::ecs::GenerateEntity());
+		hierarchyPool.Create(entities[idx]);
+	}
+	
+	std::cout << "- Hierarchy -" << std::endl;
+	hierarchyPool.PrintHierarchy();
+	hierarchyPool.Attach(entities[4], entities[3]);
+	hierarchyPool.PrintHierarchy();
+	hierarchyPool.Attach(entities[0], entities[2]);
+	hierarchyPool.PrintHierarchy();
+	hierarchyPool.Attach(root, entities[0]);
+	hierarchyPool.PrintHierarchy();
+	hierarchyPool.Attach(root, entities[4]);
+	hierarchyPool.PrintHierarchy();
+	hierarchyPool.Attach(entities[0], entities[1]);
+	hierarchyPool.PrintHierarchy();
+	hierarchyPool.Attach(entities[3], entities[5]);
+	hierarchyPool.PrintHierarchy();
+
+	// hierarchyPool.Attach(entities[3], entities[0]); => Circular Dependency
 
 	return 0;
 }

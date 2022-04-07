@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <iostream>
+#include <atomic>
 
 namespace sy::ecs
 {
@@ -15,17 +16,25 @@ namespace sy::ecs
 	constexpr Entity INVALID_ENTITY_HANDLE = 0;
 	constexpr size_t DEFAULT_COMPONENT_POOL_SIZE = 16;
 
+	constexpr bool USE_RANDOM_NUM_FOR_ENTITY_HANDLE = false;
+
 	inline Entity GenerateEntity()
 	{
-		static thread_local std::mt19937_64 generator(
-			std::hash<std::thread::id>{}(std::this_thread::get_id()));
+		if (USE_RANDOM_NUM_FOR_ENTITY_HANDLE)
+		{
+			static thread_local std::mt19937_64 generator(
+				std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
-		std::uniform_int_distribution<Entity> dist(std::numeric_limits<Entity>::min()+1, std::numeric_limits<Entity>::max());
-		return dist(generator);
+			std::uniform_int_distribution<Entity> dist(std::numeric_limits<Entity>::min() + 1, std::numeric_limits<Entity>::max());
+			return dist(generator);
+		}
+
+		static std::atomic<Entity> handle = 1;
+		return handle++;
 	}
 
 	template <typename Component>
-	class ComponentPool
+	class ComponentPoolBase
 	{
 	public:
 		using RefWrapper = std::reference_wrapper<Component>;
@@ -34,7 +43,7 @@ namespace sy::ecs
 		using ConstComponentRetType = std::optional<ConstRefWrapper>;
 
 	public:
-		explicit ComponentPool(size_t reservedSize = DEFAULT_COMPONENT_POOL_SIZE)
+		explicit ComponentPoolBase(size_t reservedSize = DEFAULT_COMPONENT_POOL_SIZE)
 		{
 			components.reserve(reservedSize);
 			entities.reserve(reservedSize);
@@ -183,7 +192,7 @@ namespace sy::ecs
 			return foundItr != components.end();
 		}
 
-	private:
+	protected:
 		std::vector<Component> components;
 		/* Entities[idx] == Entities[LUT[Entities[idx]]] **/
 		std::vector<Entity> entities; 
@@ -191,4 +200,13 @@ namespace sy::ecs
 
 	};
 
+	template <typename Component>
+	class ComponentPool : public ComponentPoolBase<Component>
+	{
+	public:
+		explicit ComponentPool(size_t reservedSize = DEFAULT_COMPONENT_POOL_SIZE) :
+			ComponentPoolBase<Component>(reservedSize)
+		{
+		}
+	};
 }
