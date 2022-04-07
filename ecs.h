@@ -154,7 +154,7 @@ namespace sy::ecs
 			lut.clear();
 		}
 
-		inline bool CheckValidatioBetween(Entity entity, const Component& component) const
+		inline bool CheckRelationBetween(Entity entity, const Component& component) const
 		{
 			if (!components.empty())
 			{

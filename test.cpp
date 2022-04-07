@@ -29,11 +29,12 @@ int main()
 
 	assert(componentPool.Size() == 1);
 
-	assert(componentPool.CheckValidatioBetween(newEntity, comp));
+	assert(componentPool.CheckValidationOf(comp));
+	assert(componentPool.CheckRelationBetween(newEntity, comp));
 
 	componentPool.Remove(newEntity);
 	assert(!componentPool.CheckValidationOf(comp));
-	assert(!componentPool.CheckValidatioBetween(newEntity, comp));
+	assert(!componentPool.CheckRelationBetween(newEntity, comp));
 
 	return 0;
 }
