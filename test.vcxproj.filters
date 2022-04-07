@@ -20,5 +20,8 @@
     <ClInclude Include="ecs.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
+    <ClInclude Include="ecs_hierarchy.h">
+      <Filter>Sources\ECS</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

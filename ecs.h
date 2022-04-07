@@ -6,10 +6,12 @@
 #include <thread>
 #include <vector>
 #include <unordered_map>
+#include <iostream>
 
 namespace sy::ecs
 {
 	using Entity = uint64_t;
+	using EntityRetType = std::optional<Entity>;
 	constexpr Entity INVALID_ENTITY_HANDLE = 0;
 	constexpr size_t DEFAULT_COMPONENT_POOL_SIZE = 16;
 
@@ -30,7 +32,6 @@ namespace sy::ecs
 		using ConstRefWrapper = std::reference_wrapper<const Component>;
 		using ComponentRetType = std::optional<RefWrapper>;
 		using ConstComponentRetType = std::optional<ConstRefWrapper>;
-		using EntityRetType = std::optional<Entity>;
 
 	public:
 		explicit ComponentPool(size_t reservedSize = DEFAULT_COMPONENT_POOL_SIZE)
@@ -189,4 +190,5 @@ namespace sy::ecs
 		std::unordered_map<Entity, size_t> lut;
 
 	};
+
 }
