@@ -210,7 +210,7 @@ namespace sy::ecs
 		inline void MoveElementBlock(size_t blockBegin, size_t blockEnd, size_t destination)
 		{
 			bool bIsValidRange = 
-				(blockBegin >= 0 && blockBegin <= Size()) && 
+				(blockBegin >= 0 && blockBegin < Size()) && 
 				(blockEnd >= 0 && blockEnd <= Size());
 
 			if (bIsValidRange)

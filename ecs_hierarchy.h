@@ -92,6 +92,30 @@ namespace sy::ecs
 			}
 		}
 
+		inline void Remove(Entity target)
+		{
+			if (auto targetItr = lut.find(target); targetItr != lut.end())
+			{
+				size_t rootIdx = targetItr->second;
+
+				std::vector<HierarchyComponent> componentSubTree;
+				std::vector<Entity> entitySubTree;
+				InjectSubtree(INVALID_ENTITY_HANDLE, rootIdx, componentSubTree, entitySubTree);
+
+				size_t injectedRange = entitySubTree.size();
+				MoveElementBlock(rootIdx + injectedRange, Size(), rootIdx);
+
+				size_t newSize = Size() - injectedRange;
+				components.resize(newSize);
+				entities.resize(newSize);
+
+				for (auto injectedEntity : entitySubTree)
+				{
+					lut.erase(injectedEntity);
+				}
+			}
+		}
+
 	private:
 		size_t InjectSubtree(Entity parent, size_t rootIdx, std::vector<HierarchyComponent>& tempComps, std::vector<Entity>& tempEntities)
 		{
@@ -101,7 +125,8 @@ namespace sy::ecs
 				entities[rootIdx] = INVALID_ENTITY_HANDLE;
 
 				components[rootIdx].parentEntity = parent;
-				tempComps.emplace_back(std::move(components[rootIdx]));
+				tempComps.emplace_back(components[rootIdx]);
+				components[rootIdx].parentEntity = INVALID_ENTITY_HANDLE;
 				tempEntities.emplace_back(rootEntity);
 
 				size_t numSubTreeElements = 1;

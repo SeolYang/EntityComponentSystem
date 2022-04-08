@@ -103,10 +103,10 @@ int main()
 	hierarchyPool.Attach(entities[3], entities[5]);
 	PrintHierarchySystem::PrintHierarchy(hierarchyPool);
 	hierarchyPool.Detach(entities[4]);
+	hierarchyPool.Remove(entities[4]);
 	PrintHierarchySystem::PrintHierarchy(hierarchyPool);
 
-	//hierarchyPool.Attach(entities[5], entities[3]);
-	// hierarchyPool.Attach(entities[3], root); => Circular Dependency
+	// hierarchyPool.Attach(entities[3], root);
 
 	return 0;
 }
