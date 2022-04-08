@@ -157,7 +157,7 @@ namespace sy::ecs
 				std::nullopt;
 		}
 
-		size_t Size() const
+		inline size_t Size() const
 		{
 			return components.size();
 		}
@@ -195,6 +195,68 @@ namespace sy::ecs
 				});
 
 			return foundItr != components.end();
+		}
+
+		inline void UpdateLUT()
+		{
+			for (size_t idx = 0; idx < entities.size(); ++idx)
+			{
+				lut[entities[idx]] = idx;
+			}
+		}
+
+	protected:
+		/** Move Components/Entities elements block [blockBegin, blockEnd) to destination. */
+		inline void MoveElementBlock(size_t blockBegin, size_t blockEnd, size_t destination)
+		{
+			bool bIsValidRange = 
+				(blockBegin >= 0 && blockBegin <= Size()) && 
+				(blockEnd >= 0 && blockEnd <= Size());
+
+			if (bIsValidRange)
+			{
+				if (blockBegin > blockEnd)
+				{
+					std::swap(blockBegin, blockEnd);
+				}
+
+				auto compBeginItr = components.begin();
+				std::move(
+					compBeginItr + blockBegin,
+					compBeginItr + blockEnd,
+					compBeginItr + destination);
+
+				auto entitiyBeginItr = entities.begin();
+				std::move(
+					entitiyBeginItr + blockBegin,
+					entitiyBeginItr + blockEnd,
+					entitiyBeginItr + destination);
+			}
+		}
+
+		inline void MoveElementBlockFrom(std::vector<Component> moveComponents, std::vector<Entity> moveEntities, size_t moveAt)
+		{
+			bool bIsValidPoint = moveAt >= 0 && moveAt < Size();
+
+			if (bIsValidPoint)
+			{
+				if (moveAt + moveComponents.size() - 1 >= Size())
+				{
+					size_t newSize = moveAt + moveComponents.size();
+					components.resize(newSize);
+					entities.resize(newSize);
+				}
+
+				std::move(
+					moveComponents.begin(),
+					moveComponents.end(),
+					components.begin() + moveAt);
+
+				std::move(
+					moveEntities.begin(),
+					moveEntities.end(),
+					entities.begin() + moveAt);
+			}
 		}
 
 	protected:

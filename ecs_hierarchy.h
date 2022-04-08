@@ -23,108 +23,94 @@ namespace sy::ecs
 		{
 			auto lutParentItr = lut.find(parent);
 			auto lutChildItr = lut.find(child);
-			if (lutParentItr != lutChildItr)
+
+			bool bIsExistEntities = lutParentItr != lut.end() && lutChildItr != lut.end();
+			bool bIsNotSameEntities = parent != child;
+			if (bIsExistEntities && bIsNotSameEntities)
 			{
-				if (lutParentItr != lut.end() && lutChildItr != lut.end())
+				size_t parentOffset = lutParentItr->second;
+				size_t childOffset = lutChildItr->second;
+
+				if (components[childOffset].parentEntity != parent)
 				{
-					size_t parentOffset = lutParentItr->second;
-					size_t childOffset = lutChildItr->second;
-
-					components[childOffset].parentEntity = parent;
-
 					std::vector<HierarchyComponent> tempComps;
 					std::vector<Entity> tempEntities;
-					InjectSubtree(childOffset, tempComps, tempEntities);
+					InjectSubtree(parent, childOffset, tempComps, tempEntities);
 
-					size_t copyBegin = 0;
-					size_t copyEnd = 0;
-					size_t copyTo = 0;
+					size_t moveBegin = 0;
+					size_t moveEnd = 0;
+					size_t moveTo = 0;
+					size_t moveAt = 0;
 					{
 						if (childOffset < parentOffset)
 						{
-							copyBegin = childOffset + tempComps.size();
-							copyTo = childOffset;
+							moveBegin = childOffset + tempComps.size();
+							moveTo = childOffset;
 
-							for (copyEnd = copyBegin; copyEnd < components.size(); ++copyEnd)
+							for (moveEnd = moveBegin; moveEnd < components.size(); ++moveEnd)
 							{
-								if (components[copyEnd].parentEntity == INVALID_ENTITY_HANDLE)
+								if (components[moveEnd].parentEntity == INVALID_ENTITY_HANDLE)
 								{
 									break;
 								}
 							}
+							++moveEnd;
 
-							++copyEnd;
-							std::copy(
-								components.begin() + copyBegin,
-								components.begin() + copyEnd,
-								components.begin() + copyTo);
-
-							std::copy(
-								entities.begin() + copyBegin,
-								entities.begin() + copyEnd,
-								entities.begin() + copyTo);
-
-							std::copy(
-								tempComps.begin(),
-								tempComps.end(),
-								components.begin() + copyEnd - 1);
-
-							std::copy(
-								tempEntities.begin(),
-								tempEntities.end(),
-								entities.begin() + copyEnd - 1);
+							moveAt = moveEnd - 1;
 						}
 						else if (childOffset > parentOffset)
 						{
-							copyBegin = parentOffset + 1;
-							copyEnd = copyBegin + (childOffset - parentOffset - 1);
-							copyTo = copyBegin + tempComps.size();
-							std::copy(
-								components.begin() + copyBegin,
-								components.begin() + copyEnd,
-								components.begin() + copyTo);
+							moveBegin = parentOffset + 1;
+							moveEnd = moveBegin + (childOffset - parentOffset - 1);
+							moveTo = moveBegin + tempComps.size();
 
-							std::copy(
-								entities.begin() + copyBegin,
-								entities.begin() + copyEnd,
-								entities.begin() + copyTo);
-
-							std::copy(
-								tempComps.begin(),
-								tempComps.end(),
-								components.begin() + copyBegin);
-
-							std::copy(
-								tempEntities.begin(),
-								tempEntities.end(),
-								entities.begin() + copyBegin);
+							moveAt = moveBegin;
 						}
 
-						for (size_t idx = 0; idx < entities.size(); ++idx)
-						{
-							lut[entities[idx]] = idx;
-						}
+						MoveElementBlock(moveBegin, moveEnd, moveTo);
+						MoveElementBlockFrom(std::move(tempComps), std::move(tempEntities), moveAt);
+						UpdateLUT();
 					}
 				}
 			}
 		}
 
+		void Detach(Entity target)
+		{
+			if (auto targetItr = lut.find(target); targetItr != lut.end())
+			{
+				size_t rootIdx = targetItr->second;
+
+				std::vector<HierarchyComponent> componentSubTree;
+				std::vector<Entity> entitySubTree;
+				InjectSubtree(INVALID_ENTITY_HANDLE, rootIdx, componentSubTree, entitySubTree);
+
+				size_t injectedRange = entitySubTree.size();
+				MoveElementBlock(rootIdx + injectedRange, Size(), rootIdx);
+				MoveElementBlockFrom(std::move(componentSubTree), std::move(entitySubTree), rootIdx + injectedRange);
+				UpdateLUT();
+			}
+		}
+
 	private:
-		size_t InjectSubtree(size_t rootIdx, std::vector<HierarchyComponent>& tempComps, std::vector<Entity>& tempEntities)
+		size_t InjectSubtree(Entity parent, size_t rootIdx, std::vector<HierarchyComponent>& tempComps, std::vector<Entity>& tempEntities)
 		{
 			if (rootIdx >= 0 && rootIdx < components.size())
 			{
+				Entity rootEntity = entities[rootIdx];
+				entities[rootIdx] = INVALID_ENTITY_HANDLE;
+
+				components[rootIdx].parentEntity = parent;
 				tempComps.emplace_back(std::move(components[rootIdx]));
-				tempEntities.emplace_back(entities[rootIdx]);
+				tempEntities.emplace_back(rootEntity);
 
 				size_t numSubTreeElements = 1;
 				for (size_t childIdx = rootIdx + 1; childIdx < components.size(); ++childIdx)
 				{
-					if (components[childIdx].parentEntity == entities[rootIdx])
+					if (components[childIdx].parentEntity == rootEntity)
 					{
-						numSubTreeElements += InjectSubtree(childIdx, tempComps, tempEntities);
+						numSubTreeElements += InjectSubtree(rootEntity, childIdx, tempComps, tempEntities);
 						childIdx = rootIdx + numSubTreeElements - 1;
-
 					}
 					else
 					{
@@ -137,7 +123,6 @@ namespace sy::ecs
 
 			return 0;
 		}
-
 
 	};
 }

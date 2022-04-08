@@ -48,33 +48,33 @@ namespace PrintHierarchySystem
 
 int main()
 {
-	sy::ecs::ComponentPool<TestComponent> componentPool;
-	assert(!componentPool.Create(sy::ecs::INVALID_ENTITY_HANDLE).has_value());
+	//sy::ecs::ComponentPool<TestComponent> componentPool;
+	//assert(!componentPool.Create(sy::ecs::INVALID_ENTITY_HANDLE).has_value());
 
-	auto newEntity = sy::ecs::GenerateEntity();
-	auto newCompOpt = componentPool.Create(newEntity);
-	assert(newCompOpt.has_value());
-	assert(!componentPool.Create(newEntity).has_value());
+	//auto newEntity = sy::ecs::GenerateEntity();
+	//auto newCompOpt = componentPool.Create(newEntity);
+	//assert(newCompOpt.has_value());
+	//assert(!componentPool.Create(newEntity).has_value());
 
-	auto& newComp = newCompOpt.value().get();
-	assert(newComp.value == 0.0f);
-	newComp.value = 2.0f;
+	//auto& newComp = newCompOpt.value().get();
+	//assert(newComp.value == 0.0f);
+	//newComp.value = 2.0f;
 
-	assert(componentPool.Contains(newEntity));
-	auto compOpt = componentPool.GetComponent(newEntity);
-	assert(compOpt.has_value());
+	//assert(componentPool.Contains(newEntity));
+	//auto compOpt = componentPool.GetComponent(newEntity);
+	//assert(compOpt.has_value());
 
-	auto& comp = compOpt.value().get();
-	assert(comp.value == 2.0f);
+	//auto& comp = compOpt.value().get();
+	//assert(comp.value == 2.0f);
 
-	assert(componentPool.Size() == 1);
+	//assert(componentPool.Size() == 1);
 
-	assert(componentPool.CheckValidationOf(comp));
-	assert(componentPool.CheckRelationBetween(newEntity, comp));
+	//assert(componentPool.CheckValidationOf(comp));
+	//assert(componentPool.CheckRelationBetween(newEntity, comp));
 
-	componentPool.Remove(newEntity);
-	assert(!componentPool.CheckValidationOf(comp));
-	assert(!componentPool.CheckRelationBetween(newEntity, comp));
+	//componentPool.Remove(newEntity);
+	//assert(!componentPool.CheckValidationOf(comp));
+	//assert(!componentPool.CheckRelationBetween(newEntity, comp));
 	/////////////////////////////////////////////
 	sy::ecs::ComponentPool<sy::ecs::HierarchyComponent> hierarchyPool;
 
@@ -102,8 +102,11 @@ int main()
 	PrintHierarchySystem::PrintHierarchy(hierarchyPool);
 	hierarchyPool.Attach(entities[3], entities[5]);
 	PrintHierarchySystem::PrintHierarchy(hierarchyPool);
+	hierarchyPool.Detach(entities[4]);
+	PrintHierarchySystem::PrintHierarchy(hierarchyPool);
 
-	// hierarchyPool.Attach(entities[3], entities[0]); => Circular Dependency
+	//hierarchyPool.Attach(entities[5], entities[3]);
+	// hierarchyPool.Attach(entities[3], root); => Circular Dependency
 
 	return 0;
 }
