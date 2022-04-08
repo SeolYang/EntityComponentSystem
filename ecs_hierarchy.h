@@ -109,20 +109,6 @@ namespace sy::ecs
 			}
 		}
 
-		void PrintHierarchy()
-		{
-			std::cout << "ROOT" << std::endl;
-			for (size_t idx = 0; idx < components.size(); ++idx)
-			{
-				if (components[idx].parentEntity == INVALID_ENTITY_HANDLE)
-				{
-					PrintSubtree(idx, 1);
-				}
-			}
-
-			std::cout << std::endl;
-		}
-
 	private:
 		size_t InjectSubtree(size_t rootIdx, std::vector<HierarchyComponent>& tempComps, std::vector<Entity>& tempEntities)
 		{
@@ -152,22 +138,6 @@ namespace sy::ecs
 			return 0;
 		}
 
-		void PrintSubtree(size_t rootIdx = 0, int depth = 0)
-		{
-			for (int itr = 0; itr < depth; ++itr)
-			{
-				std::cout << '-';
-			}
-			std::cout << " ID : " << (entities[rootIdx]) << std::endl;
-
-			for (size_t childIdx = rootIdx + 1; childIdx < components.size(); ++childIdx)
-			{
-				if (components[childIdx].parentEntity == entities[rootIdx])
-				{
-					PrintSubtree(childIdx, depth + 1);
-				}
-			}
-		}
 
 	};
 }

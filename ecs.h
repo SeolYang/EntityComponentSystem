@@ -12,7 +12,6 @@
 namespace sy::ecs
 {
 	using Entity = uint64_t;
-	using EntityRetType = std::optional<Entity>;
 	constexpr Entity INVALID_ENTITY_HANDLE = 0;
 	constexpr size_t DEFAULT_COMPONENT_POOL_SIZE = 16;
 
@@ -50,18 +49,14 @@ namespace sy::ecs
 			lut.reserve(reservedSize);
 		}
 
-		ComponentRetType operator[](size_t idx)
+		Component& operator[](size_t idx)
 		{
-			return (idx < components.size()) ?
-				components[idx] :
-				std::nullopt;
+			return components[idx];
 		}
 
-		ConstComponentRetType operator[](size_t idx) const
+		const Component& operator[](size_t idx) const
 		{
-			return (idx < components.size()) ?
-				components[idx] :
-				std::nullopt;
+			return components[idx];
 		}
 
 		inline bool Contains(Entity entity) const
@@ -122,7 +117,7 @@ namespace sy::ecs
 				if (bHasRelatedComponent)
 				{
 					size_t targetComponentIdx = lut[entity];
-					return components[targetComponentIdx];
+					return ConstComponentRetType(components[targetComponentIdx]);
 				}
 			}
 
@@ -145,10 +140,20 @@ namespace sy::ecs
 			return std::nullopt;
 		}
 
-		EntityRetType GetEntity(size_t componentIdx) const
+		const std::vector<Component>& GetComponents() const
+		{
+			return components;
+		}
+
+		std::vector<Component>& GetComponents()
+		{
+			return components;
+		}
+
+		std::optional<Entity> GetEntity(size_t componentIdx) const
 		{
 			return (componentIdx < entities.size()) ?
-				entities[componentIdx] :
+				std::optional<Entity>(entities[componentIdx]) :
 				std::nullopt;
 		}
 
