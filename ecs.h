@@ -66,12 +66,15 @@ namespace sy::ecs
 
 		ComponentRetType Create(Entity entity)
 		{
-			bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE;
-			if (bIsValidEntityHandle)
+			
+			if (bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE; 
+				bIsValidEntityHandle)
 			{
-				bool bIsDuplicatedEntity = Contains(entity);
-				if (!bIsDuplicatedEntity)
+				
+				if (bool bIsDuplicatedEntity = Contains(entity); 
+					!bIsDuplicatedEntity)
 				{
+					[[likely]]
 					lut[entity] = components.size();
 					components.emplace_back();
 					entities.push_back(entity);
@@ -85,16 +88,17 @@ namespace sy::ecs
 
 		void Remove(Entity entity)
 		{
-			bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE;
-			if (bIsValidEntityHandle)
+			if (bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE; 
+				bIsValidEntityHandle)
 			{
-				auto lutItr = lut.find(entity);
-				if (lutItr != lut.end())
+				
+				if (auto lutItr = lut.find(entity); lutItr != lut.end())
 				{
 					size_t targetComponentIdx = lutItr->second;
 					
-					bool bIsLatestComponent = targetComponentIdx == (components.size() - 1);
-					if (!bIsLatestComponent)
+					
+					if (bool bIsLatestComponent = targetComponentIdx == (components.size() - 1); 
+						!bIsLatestComponent)
 					{
 						components[targetComponentIdx] = std::move(components.back());
 						entities[targetComponentIdx] = entities.back();
@@ -110,11 +114,11 @@ namespace sy::ecs
 
 		ConstComponentRetType GetComponent(Entity entity) const
 		{
-			bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE;
-			if (bIsValidEntityHandle)
+			if (bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE; 
+				bIsValidEntityHandle)
 			{
-				bool bHasRelatedComponent = Contains(entity);
-				if (bHasRelatedComponent)
+				if (bool bHasRelatedComponent = Contains(entity); 
+					bHasRelatedComponent)
 				{
 					size_t targetComponentIdx = lut[entity];
 					return ConstComponentRetType(components[targetComponentIdx]);
@@ -126,11 +130,10 @@ namespace sy::ecs
 
 		ComponentRetType GetComponent(Entity entity)
 		{
-			bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE;
-			if (bIsValidEntityHandle)
+			if (bool bIsValidEntityHandle = entity != INVALID_ENTITY_HANDLE; bIsValidEntityHandle)
 			{
-				bool bHasRelatedComponent = Contains(entity);
-				if (bHasRelatedComponent)
+				
+				if (bool bHasRelatedComponent = Contains(entity); bHasRelatedComponent)
 				{
 					size_t targetComponentIdx = lut[entity];
 					return components[targetComponentIdx];
@@ -175,8 +178,7 @@ namespace sy::ecs
 			{
 				if (entity != INVALID_ENTITY_HANDLE)
 				{
-					auto lutItr = lut.find(entity);
-					if (lutItr != lut.end())
+					if (auto lutItr = lut.find(entity); lutItr != lut.end())
 					{
 						return &components[lutItr->second] == &component;
 					}
