@@ -83,8 +83,8 @@
     <ClCompile Include="test.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ecs.h" />
-    <ClInclude Include="ecs_hierarchy.h" />
+    <ClInclude Include="ECS.h" />
+    <ClInclude Include="HierarchyComponent.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

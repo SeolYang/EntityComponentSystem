@@ -17,11 +17,11 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ecs.h">
+    <ClInclude Include="ECS.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
-    <ClInclude Include="ecs_hierarchy.h">
-      <Filter>Sources\Tests</Filter>
+    <ClInclude Include="HierarchyComponent.h">
+      <Filter>Sources\ECS</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

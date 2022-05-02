@@ -1,5 +1,5 @@
-﻿#include "ecs.h"
-#include "ecs_hierarchy.h"
+﻿#include "ECS.h"
+#include "HierarchyComponent.h"
 #include <cassert>
 
 struct TestComponent

@@ -1,5 +1,5 @@
 #pragma once
-#include "ecs.h"
+#include "ECS.h"
 #include <iostream>
 
 namespace sy::ecs
