@@ -12,15 +12,12 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="test.cpp">
+    <ClCompile Include="main.cpp">
       <Filter>Sources\Tests</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ECS.h">
-      <Filter>Sources\ECS</Filter>
-    </ClInclude>
-    <ClInclude Include="HierarchyComponent.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
   </ItemGroup>
