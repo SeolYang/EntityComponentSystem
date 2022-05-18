@@ -17,6 +17,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ECS_ChunkPool_Test.h">
+      <Filter>Sources\ECS</Filter>
+    </ClInclude>
     <ClInclude Include="ECS.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
