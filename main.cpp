@@ -63,5 +63,9 @@ int main()
 	componentArchive.AttachTo<Invisible>(e0);
 	componentArchive.DetachFrom<Visible>(e1);
 
+	const Visible& e0Visible_2 = (*componentArchive.Retrieve<Visible>(e0));
+	const Hittable& e0Hittable_1 = (*componentArchive.Retrieve<Hittable>(e0));
+	const Invisible& e0Invisible_0 = (*componentArchive.Retrieve<Invisible>(e0));
+
 	return 0;
 }

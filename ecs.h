@@ -50,6 +50,7 @@ namespace sy
 	using OptionalRef = std::optional<std::reference_wrapper<T>>;
 
 	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
+	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
 	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
 
 	enum class Entity : uint64_t {};
@@ -114,6 +115,14 @@ namespace sy
 		{
 			size_t Offset = 0;
 			size_t Size = 0;
+
+			static void ComponentCopy(void* destOffset, void* srcOffset, ComponentRange destRange, ComponentRange srcRange)
+			{
+				assert(destRange.Size == srcRange.Size);
+				void* dest = (void*)((uintptr_t)destOffset + destRange.Offset);
+				void* src = (void*)((uintptr_t)srcOffset + srcRange.Offset);
+				std::memcpy(dest, src, srcRange.Size);
+			}
 		};
 
 	public:
@@ -198,15 +207,15 @@ namespace sy
 					Chunk& actualDestChunk = destChunk.AttachToWithChunkResult(target);
 					for (auto& componentInfo : actualSrcChunk.componentRanges)
 					{
+						ComponentID targetComponentID = componentInfo.first;
 						if (actualDestChunk.Supports(componentInfo.first))
 						{
-							ComponentRange& srcComponentRange = componentInfo.second;
-							const auto& destComponentRange = actualDestChunk.componentRanges[componentInfo.first];
+							ComponentRange srcComponentRange = componentInfo.second;
+							ComponentRange destComponentRange = actualDestChunk.QueryComponentRange(targetComponentID);
 
-							void* dest = (void*)((uintptr_t)actualDestChunk.mem + destComponentRange.Offset);
-							void* src = (void*)((uintptr_t)actualSrcChunk.mem + srcComponentRange.Offset);
-							assert(srcComponentRange.Size == destComponentRange.Size);
-							std::memcpy(dest, src, srcComponentRange.Size);
+							void* destOffset = actualDestChunk.OffsetAddressOfEntity(target);
+							void* srcOffset = actualSrcChunk.OffsetAddressOfEntity(target);
+							ComponentRange::ComponentCopy(destOffset, srcOffset, destComponentRange, srcComponentRange);
 						}
 					}
 
@@ -227,7 +236,7 @@ namespace sy
 
 		bool Remove(Entity entity)
 		{
-			if (entityLUT.find(entity) == entityLUT.end())
+			if (!utils::HasKey(entityLUT, entity))
 			{
 				if (next != nullptr)
 				{
@@ -236,25 +245,24 @@ namespace sy
 			}
 			else
 			{
-				const size_t offsetIdx = entityLUT[entity];
-				const size_t offset = sizeOfData * offsetIdx;
-				void* dest = reinterpret_cast<void*>(((uintptr_t)mem) + offset);
-				void* src = reinterpret_cast<void*>(((uintptr_t)mem) + (sizeOfData * (currentSize - 1)));
+				void* dest = OffsetAddressOfEntity(entity);
+				void* src = OffsetAddressOfBack();
 				std::memcpy(dest, src, sizeOfData);
 				std::memset(src, 0, sizeOfData);
 
+				const size_t targetEntityOffset = OffsetOfEntity(entity);
 				entityLUT.erase(entity);
-				const size_t newOffsetForReplacedEntity = offsetIdx;
-				Entity replacedEntity = INVALID_ENTITY_HANDLE;
-				for (auto& entityPair : entityLUT)
+
+				for (auto& entityOffsetPair : entityLUT)
 				{
-					if (entityPair.second == (currentSize - 1))
+					Entity entity = entityOffsetPair.first;
+					size_t offset = entityOffsetPair.second;
+					if (offset == (currentSize - 1))
 					{
-						replacedEntity = entityPair.first;
+						entityLUT[entity] = targetEntityOffset;
 						break;
 					}
 				}
-				entityLUT[replacedEntity] = newOffsetForReplacedEntity;
 
 				--currentSize;
 				return true;
@@ -270,10 +278,27 @@ namespace sy
 			{
 				if (utils::HasKey(entityLUT, entity))
 				{
-					const size_t offset = sizeOfData * entityLUT[entity];
-					const ComponentRange& componentRange = componentRanges[QueryComponentID<T>()];
-					T* component = reinterpret_cast<T*>(((uintptr_t)mem) + offset + componentRange.Offset);
+					T* component = reinterpret_cast<T*>(OffsetAddressOfEntityComponent(entity, QueryComponentID<T>()));
 					return std::ref(*component);
+				}
+				else if (next != nullptr)
+				{
+					return next->Retrieve<T>(entity);
+				}
+			}
+
+			return std::nullopt;
+		}
+
+		template <typename T>
+		OptionalRef<const T> Retrieve(const Entity entity) const
+		{
+			if (Supports<T>())
+			{
+				if (utils::HasKey(entityLUT, entity))
+				{
+					T* component = reinterpret_cast<T*>(OffsetAddressOfEntityComponent(entity, QueryComponentID<T>()));
+					return std::cref(*component);
 				}
 				else if (next != nullptr)
 				{
@@ -292,6 +317,22 @@ namespace sy
 		template <typename T>
 		bool Supports() const { return Supports(QueryComponentID<T>()); }
 		bool Contains(Entity entity) const { return utils::HasKey(entityLUT, entity) || ((next != nullptr) ? next->Contains(entity) : false); }
+
+		ComponentRange QueryComponentRange(ComponentID componentID) const
+		{
+			if (Supports(componentID))
+			{
+				return componentRanges.find(componentID)->second;
+			}
+
+			return ComponentRange();
+		}
+
+		template <typename T>
+		ComponentRange QueryComponentRange() const
+		{
+			return QueryComponentRange(QueryComponentID<T>());
+		}
 
 	private:
 		Chunk(const std::unordered_map<ComponentID, ComponentRange>& componentRanges,
@@ -340,10 +381,25 @@ namespace sy
 			return entityLUT.find(entity)->second * sizeOfData;
 		}
 
+		void* OffsetAddressOfEntity(Entity entity) const
+		{
+			return (void*)((uintptr_t)mem + OffsetOfEntity(entity));
+		}
+
 		size_t OffsetOfEntityComponent(Entity entity, ComponentID componentID) const
 		{
 			const ComponentRange& componentRange = componentRanges.find(componentID)->second;
 			return OffsetOfEntity(entity) + componentRange.Offset;
+		}
+
+		void* OffsetAddressOfEntityComponent(Entity entity, ComponentID componentID) const
+		{
+			return (void*)((uintptr_t)mem + OffsetOfEntityComponent(entity, componentID));
+		}
+
+		void* OffsetAddressOfBack() const
+		{
+			return (void*)((uintptr_t)mem + (sizeOfData * (currentSize - 1)));
 		}
 
 	private:
@@ -461,6 +517,18 @@ namespace sy
 
 		template <typename T>
 		OptionalRef<T> Retrieve(const Entity entity)
+		{
+			if (Contains<T>(entity))
+			{
+				Chunk& chunk = FindOrCreateArchetypeChunkIfDoesNotExist(entityLUT[entity]);
+				return chunk.Retrieve<T>(entity);
+			}
+
+			return std::nullopt;
+		}
+
+		template <typename T>
+		OptionalRef<const T> Retrieve(const Entity entity) const
 		{
 			if (Contains<T>(entity))
 			{
