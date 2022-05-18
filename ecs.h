@@ -49,11 +49,6 @@ namespace sy
 	template <typename T>
 	using OptionalRef = std::optional<std::reference_wrapper<T>>;
 
-	// Bigger chunk size = lower level of indirection
-	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
-	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
-	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
-
 	enum class Entity : uint64_t {};
 	constexpr Entity INVALID_ENTITY_HANDLE = static_cast<Entity>(0);
 	constexpr size_t DEFAULT_COMPONENT_POOL_SIZE = 16;
@@ -108,6 +103,11 @@ namespace sy
 			return result;
 		}
 	};
+
+	// Bigger chunk size = lower level of indirection
+	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
+	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
+	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
 
 	class Chunk
 	{
@@ -417,6 +417,9 @@ namespace sy
 	class ComponentArchive
 	{
 	public:
+		using Archetype = std::set<ComponentID>;
+
+	public:
 		~ComponentArchive()
 		{
 			for (auto& chunkPair : archetypeChunkLUT)
@@ -577,14 +580,24 @@ namespace sy
 
 		size_t NumOfArchetype() const { return archetypeChunkLUT.size(); }
 
+		Archetype QueryArchetype(const Entity entity) const
+		{
+			if (utils::HasKey(archetypeLUT, entity))
+			{
+				return archetypeLUT.find(entity)->second;
+			}
+
+			return Archetype();
+		}
+
 	private:
 		ComponentArchive() = default;
 
-		Chunk& FindOrCreateArchetypeChunk(const std::set<ComponentID>& componentSet)
+		Chunk& FindOrCreateArchetypeChunk(const Archetype& archetype)
 		{
 			for (auto& chunkListPair : archetypeChunkLUT)
 			{
-				if (componentSet == chunkListPair.first)
+				if (archetype == chunkListPair.first)
 				{
 					return *chunkListPair.second;
 				}
@@ -592,17 +605,17 @@ namespace sy
 
 			archetypeChunkLUT.emplace_back(
 				std::make_pair(
-					componentSet, 
-					new Chunk(RetrieveComponentInfoFromSet(componentSet))));
+					archetype,
+					new Chunk(RetrieveComponentInfoFromArchetype(archetype))));
 
 			return *archetypeChunkLUT.back().second;
 		}
 
-		std::vector<ComponentInfo> RetrieveComponentInfoFromSet(const std::set<ComponentID>& componentSet) const
+		std::vector<ComponentInfo> RetrieveComponentInfoFromArchetype(const Archetype& archetype) const
 		{
 			std::vector<ComponentInfo> res{ };
-			res.reserve(componentSet.size());
-			for (ComponentID componentID : componentSet)
+			res.reserve(archetype.size());
+			for (ComponentID componentID : archetype)
 			{
 				res.emplace_back(componentInfoLUT.find(componentID)->second);
 			}
@@ -612,8 +625,8 @@ namespace sy
 
 	private:
 		std::unordered_map<ComponentID, ComponentInfo> componentInfoLUT;
-		std::unordered_map<Entity, std::set<ComponentID>> archetypeLUT;
-		std::vector<std::pair<std::set<ComponentID>, Chunk*>> archetypeChunkLUT;
+		std::unordered_map<Entity, Archetype> archetypeLUT;
+		std::vector<std::pair<Archetype, Chunk*>> archetypeChunkLUT;
 
 	};
 }
