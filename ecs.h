@@ -445,31 +445,31 @@ namespace sy
 			componentInfoLUT[QueryComponentID<T>()] = ComponentInfo::Generate<T>();
 		}
 
-		bool AttachTo(const Entity entity, const ComponentID componentID)
+		bool Attach(const ComponentID componentID, const Entity toEntity)
 		{
 			if (componentID != INVALID_COMPONET_ID)
 			{
-				if (!utils::HasKey(entityLUT, entity))
+				if (!utils::HasKey(archetypeLUT, toEntity))
 				{
-					entityLUT[entity] = { };
+					archetypeLUT[toEntity] = { };
 				}
 
-				auto& componentSet = entityLUT[entity];
-				if (!utils::HasKey(componentSet, componentID))
+				auto& archetype = archetypeLUT[toEntity];
+				if (!utils::HasKey(archetype, componentID))
 				{
-					const auto oldComponentSet = componentSet;
-					componentSet.insert(componentID);
-					auto& newChunk = FindOrCreateArchetypeChunk(componentSet);
-					if (!oldComponentSet.empty())
+					const auto oldArchetype= archetype;
+					archetype.insert(componentID);
+					auto& newChunk = FindOrCreateArchetypeChunk(archetype);
+					if (!oldArchetype.empty())
 					{
 						// Move Data from old chunk to target(new) chunk
-						auto& oldChunk = FindOrCreateArchetypeChunk(oldComponentSet);
+						auto& oldChunk = FindOrCreateArchetypeChunk(oldArchetype);
 						// subset to superset
-						return oldChunk.TransferEntityTo(entity, newChunk);
+						return oldChunk.TransferEntityTo(toEntity, newChunk);
 					}
 
 					// Entity was empty, so there a no data to transfer.
-					return newChunk.Create(entity);
+					return newChunk.Create(toEntity);
 				}
 
 			}
@@ -478,32 +478,33 @@ namespace sy
 		}
 
 		template <typename T>
-		bool AttachTo(const Entity entity)
+		bool Attach(const Entity toEntity)
 		{
-			return AttachTo(entity, QueryComponentID<T>());
+			return Attach(QueryComponentID<T>(), toEntity);
 		}
 
-		bool DetachFrom(const Entity entity, const ComponentID componentID)
+		bool Detach(const ComponentID componentID, const Entity fromEntity)
 		{
 			if (componentID != INVALID_COMPONET_ID)
 			{
-				if (Contains(entity, componentID))
+				if (Contains(fromEntity, componentID))
 				{
-					auto& componentSet = entityLUT[entity];
-					if (utils::HasKey(componentSet, componentID))
+					auto& archetype = archetypeLUT[fromEntity];
+					if (utils::HasKey(archetype, componentID))
 					{
-						const auto oldComponentSet = componentSet;
-						componentSet.erase(componentID);
-						auto& oldChunk = FindOrCreateArchetypeChunk(oldComponentSet);
-						if (!componentSet.empty())
+						const auto oldArchetype = archetype;
+						archetype.erase(componentID);
+						auto& oldChunk = FindOrCreateArchetypeChunk(oldArchetype);
+						if (!archetype.empty())
 						{
-							auto& targetChunk = FindOrCreateArchetypeChunk(componentSet);
+							auto& targetChunk = FindOrCreateArchetypeChunk(archetype);
 							// Move Data from old chunk to target(new) chunk
 							// superset to subset
-							return oldChunk.TransferEntityTo(entity, targetChunk);
+							return oldChunk.TransferEntityTo(fromEntity, targetChunk);
 						}
 
-						return oldChunk.Remove(entity);
+						// If empty archetype
+						return oldChunk.Remove(fromEntity);
 					}
 				}
 			}
@@ -512,9 +513,9 @@ namespace sy
 		}
 
 		template <typename T>
-		bool DetachFrom(const Entity entity)
+		bool Detach(const Entity fromEntity)
 		{
-			return DetachFrom(entity, QueryComponentID<T>());
+			return Detach(QueryComponentID<T>(), fromEntity);
 		}
 
 		template <typename T>
@@ -522,7 +523,7 @@ namespace sy
 		{
 			if (Contains<T>(fromEntity))
 			{
-				Chunk& chunk = FindOrCreateArchetypeChunk(entityLUT[fromEntity]);
+				Chunk& chunk = FindOrCreateArchetypeChunk(archetypeLUT[fromEntity]);
 				return chunk.Reference<T>(fromEntity);
 			}
 
@@ -534,7 +535,7 @@ namespace sy
 		{
 			if (Contains<T>(fromEntity))
 			{
-				Chunk& chunk = FindOrCreateArchetypeChunkIfDoesNotExist(entityLUT[fromEntity]);
+				Chunk& chunk = FindOrCreateArchetypeChunk(archetypeLUT[fromEntity]);
 				return chunk.Reference<T>(fromEntity);
 			}
 
@@ -543,11 +544,11 @@ namespace sy
 
 		bool Contains(const Entity entity, const ComponentID componentID) const
 		{
-			auto entityLUTItr = entityLUT.find(entity);
-			if (entityLUTItr != entityLUT.end())
+			auto foundArchetypeItr = archetypeLUT.find(entity);
+			if (foundArchetypeItr != archetypeLUT.end())
 			{
-				const auto& componentSetOfEntity = (entityLUTItr->second);
-				return (componentSetOfEntity.find(componentID) != componentSetOfEntity.end());
+				const auto& foundArchetype = (foundArchetypeItr->second);
+				return utils::HasKey(foundArchetype, componentID);
 			}
 
 			return false;
@@ -561,11 +562,13 @@ namespace sy
 
 		bool IsSameArchetype(const Entity lhs, const Entity rhs) const
 		{
-			auto lhsItr = entityLUT.find(lhs);
-			auto rhsItr = entityLUT.find(rhs);
-			if (lhsItr != entityLUT.end() && rhsItr != entityLUT.end())
+			auto lhsItr = archetypeLUT.find(lhs);
+			auto rhsItr = archetypeLUT.find(rhs);
+			if (lhsItr != archetypeLUT.end() && rhsItr != archetypeLUT.end())
 			{
-				return lhsItr->second == rhsItr->second;
+				const auto& lhsArchetype = lhsItr->second;
+				const auto& rhsArchetype = rhsItr->second;
+				return lhsArchetype == rhsArchetype;
 			}
 
 			// If both itrerator is entityLUT.end(), it means those are empty and at same time equal archetype.
@@ -609,7 +612,7 @@ namespace sy
 
 	private:
 		std::unordered_map<ComponentID, ComponentInfo> componentInfoLUT;
-		std::unordered_map<Entity, std::set<ComponentID>> entityLUT;
+		std::unordered_map<Entity, std::set<ComponentID>> archetypeLUT;
 		std::vector<std::pair<std::set<ComponentID>, Chunk*>> archetypeChunkLUT;
 
 	};
