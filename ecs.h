@@ -11,6 +11,8 @@
 #include <set>
 #include <unordered_set>
 #include <cassert>
+#include <queue>
+#include <map>
 
 namespace sy::utils
 {
@@ -42,16 +44,34 @@ namespace sy::utils
 	{
 		return data.find(key) != data.end();
 	}
+
+	template <typename T, typename Key>
+	bool HasKeyV(const T& data, const Key& key)
+	{
+		return std::find_if(data.begin(), data.end(), 
+			[key](const auto& targetData)
+			{
+				return targetData.first == key;
+			}) != data.end();
+	}
+
+	inline size_t AlignForwardAdjustment(const void* ptr, const size_t alignment)
+	{
+		const size_t adjustment = alignment - (reinterpret_cast<uintptr_t>(ptr) & static_cast<uintptr_t>(alignment - 1));
+		return (adjustment == alignment) ? 0 : adjustment;
+	}
 }
 
 namespace sy
 {
 	template <typename T>
 	using OptionalRef = std::optional<std::reference_wrapper<T>>;
+}
 
+namespace sy
+{
 	enum class Entity : uint64_t {};
 	constexpr Entity INVALID_ENTITY_HANDLE = static_cast<Entity>(0);
-	constexpr size_t DEFAULT_COMPONENT_POOL_SIZE = 16;
 	constexpr bool USE_RANDOM_NUM_FOR_ENTITY_HANDLE = false;
 	inline Entity GenerateEntity()
 	{
@@ -104,316 +124,370 @@ namespace sy
 		}
 	};
 
-	// Bigger chunk size = lower level of indirection
-	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
+	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;		// bytes
 	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
-	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
+	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;		// bytes
+	constexpr size_t DEFAULT_CHUNK_POOL_SIZE = 536870912; // bytes 
+	//constexpr size_t DEFAULT_CHUNK_POOL_SIZE = 67108864; // bytes
 
-	class Chunk
+	struct ComponentRange
 	{
-	private:
-		struct ComponentRange
+		size_t Offset = 0;
+		size_t Size = 0;
+
+		static void ComponentCopy(void* destOffset, void* srcOffset, ComponentRange destRange, ComponentRange srcRange)
 		{
-			size_t Offset = 0;
-			size_t Size = 0;
+			assert(destRange.Size == srcRange.Size);
+			void* dest = (void*)((uintptr_t)destOffset + destRange.Offset);
+			void* src = (void*)((uintptr_t)srcOffset + srcRange.Offset);
+			std::memcpy(dest, src, srcRange.Size);
+		}
+	};
 
-			static void ComponentCopy(void* destOffset, void* srcOffset, ComponentRange destRange, ComponentRange srcRange)
-			{
-				assert(destRange.Size == srcRange.Size);
-				void* dest = (void*)((uintptr_t)destOffset + destRange.Offset);
-				void* src = (void*)((uintptr_t)srcOffset + srcRange.Offset);
-				std::memcpy(dest, src, srcRange.Size);
-			}
-		};
-
+	class ChunkPool
+	{
 	public:
-		Chunk(const std::vector<ComponentInfo>& componentInfos) :
-			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_ALIGNMENT)),
-			next(nullptr),
-			currentSize(0)
+		class Chunk
 		{
-			if (mem != nullptr)
+		public:
+			Chunk(ChunkPool& pool, const std::vector<ComponentInfo>& componentInfos) :
+				pool(pool),
+				mem(pool.Allocate()),
+				next(nullptr),
+				currentSize(0)
 			{
-				std::memset(mem, 0, DEFAULT_CHUNK_SIZE);
-			}
-
-			size_t offset = 0;
-			for (const auto& info : componentInfos)
-			{
-				componentRanges[info.ID] = ComponentRange{
-					.Offset = offset,
-					.Size = info.Size
-				};
-
-				offset += info.Size;
-			}
-
-			sizeOfData = offset;
-			// Save one slot for temporary data.
-			maxNumOfComponents = (DEFAULT_CHUNK_SIZE / sizeOfData) - 1;
-		}
-
-		~Chunk()
-		{
-			if (next != nullptr)
-			{
-				delete next;
-				next = nullptr;
-			}
-
-			if (mem != nullptr)
-			{
-				_aligned_free(mem);
-				mem = nullptr;
-			}
-		}
-
-		Chunk(const Chunk&) = delete;
-		Chunk(Chunk&&) = delete;
-		Chunk& operator=(const Chunk&) = delete;
-		Chunk& operator=(Chunk&&) = delete;
-
-		bool Create(Entity entity)
-		{
-			if (IsFull())
-			{
-				if (next == nullptr)
+				if (mem != nullptr)
 				{
-					next = CloneEmpty();
+ 					std::memset(mem, 0, DEFAULT_CHUNK_SIZE);
 				}
 
-				return next->Create(entity);
-			}
-			else
-			{
-				if (!Contains(entity))
+				size_t offset = 0;
+				componentRanges.reserve(componentInfos.size());
+				for (size_t idx = 0; idx < componentInfos.size(); ++idx)
 				{
-					entityLUT[entity] = currentSize;
-					++currentSize;
-					return true;
+					const auto& info = componentInfos[idx];
+					componentRanges.emplace_back(std::make_pair(info.ID,
+						ComponentRange{
+						.Offset = offset,
+						.Size = info.Size
+						}));
+
+					offset += info.Size;
 				}
 			}
 
-			return false;
-		}
-
-		// Use this function only for operate to transfer data between superset and subset.
-		bool TransferEntityTo(Entity target, Chunk& destChunk)
-		{
-			if (utils::HasKey(entityLUT, target))
+			Chunk(ChunkPool& pool, const std::vector<std::pair<ComponentID, ComponentRange>>& componentRanges) :
+				pool(pool),
+				mem(pool.Allocate()),
+				componentRanges(componentRanges),
+				next(nullptr),
+				currentSize(0)
 			{
-				if (!destChunk.Contains(target))
+			}
+
+			~Chunk()
+			{
+				pool.Deallocate(mem);
+				if (next != nullptr)
 				{
-					Chunk& actualSrcChunk = (*this);
-					Chunk& actualDestChunk = destChunk.AttachToWithChunkResult(target);
-					for (auto& componentInfo : actualSrcChunk.componentRanges)
+					delete next;
+					next = nullptr;
+				}
+			}
+
+			Chunk(const Chunk&) = delete;
+			Chunk(Chunk&&) = delete;
+			Chunk& operator=(const Chunk&) = delete;
+			Chunk& operator=(Chunk&&) = delete;
+
+			bool Create(Entity entity)
+			{
+				if (IsFull())
+				{
+					if (next == nullptr)
 					{
-						ComponentID targetComponentID = componentInfo.first;
-						if (actualDestChunk.Supports(componentInfo.first))
+						next = CloneEmpty();
+					}
+
+					return next->Create(entity);
+				}
+				else
+				{
+					if (!Contains(entity))
+					{
+						entityLUT[entity] = currentSize;
+						++currentSize;
+						return true;
+					}
+				}
+
+				return false;
+			}
+
+			// Use this function only for operate to transfer data between superset and subset.
+			bool TransferEntityTo(Entity target, Chunk& destChunk)
+			{
+				if (utils::HasKey(entityLUT, target))
+				{
+					if (!destChunk.Contains(target))
+					{
+						Chunk& actualSrcChunk = (*this);
+						Chunk& actualDestChunk = destChunk.AttachToWithChunkResult(target);
+						for (auto& componentInfo : actualSrcChunk.componentRanges)
 						{
-							ComponentRange srcComponentRange = componentInfo.second;
-							ComponentRange destComponentRange = actualDestChunk.QueryComponentRange(targetComponentID);
+							ComponentID targetComponentID = componentInfo.first;
+							if (actualDestChunk.Supports(componentInfo.first))
+							{
+								ComponentRange srcComponentRange = componentInfo.second;
+								ComponentRange destComponentRange = actualDestChunk.QueryComponentRange(targetComponentID);
 
-							void* destOffset = actualDestChunk.OffsetAddressOf(target);
-							void* srcOffset = actualSrcChunk.OffsetAddressOf(target);
-							ComponentRange::ComponentCopy(destOffset, srcOffset, destComponentRange, srcComponentRange);
+								void* destOffset = actualDestChunk.OffsetAddressOf(target);
+								void* srcOffset = actualSrcChunk.OffsetAddressOf(target);
+								ComponentRange::ComponentCopy(destOffset, srcOffset, destComponentRange, srcComponentRange);
+							}
 						}
+
+						actualSrcChunk.Remove(target);
+						return true;
 					}
-
-					actualSrcChunk.Remove(target);
-					return true;
 				}
-			}
-			else
-			{
-				if (next != nullptr)
+				else
 				{
-					return next->TransferEntityTo(target, destChunk);
-				}
-			}
-
-			return false;
-		}
-
-		bool Remove(Entity entity)
-		{
-			if (!utils::HasKey(entityLUT, entity))
-			{
-				if (next != nullptr)
-				{
-					return next->Remove(entity);
-				}
-			}
-			else
-			{
-				void* dest = OffsetAddressOf(entity);
-				void* src = OffsetAddressOfBack();
-				std::memcpy(dest, src, sizeOfData);
-				std::memset(src, 0, sizeOfData);
-
-				const size_t targetEntityOffset = OffsetOf(entity);
-				entityLUT.erase(entity);
-
-				for (auto& entityOffsetPair : entityLUT)
-				{
-					Entity entity = entityOffsetPair.first;
-					size_t offset = entityOffsetPair.second;
-					if (offset == (currentSize - 1))
+					if (next != nullptr)
 					{
-						entityLUT[entity] = targetEntityOffset;
-						break;
+						return next->TransferEntityTo(target, destChunk);
 					}
 				}
 
-				--currentSize;
-				return true;
+				return false;
 			}
 
-			return false;
-		}
-
-		template <typename T>
-		OptionalRef<T> Reference(const Entity fromEntity)
-		{
-			if (Supports<T>())
-			{
-				if (utils::HasKey(entityLUT, fromEntity))
-				{
-					T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
-					return std::ref(*component);
-				}
-				else if (next != nullptr)
-				{
-					return next->Reference<T>(fromEntity);
-				}
-			}
-
-			return std::nullopt;
-		}
-
-		template <typename T>
-		OptionalRef<const T> Reference(const Entity fromEntity) const
-		{
-			if (Supports<T>())
-			{
-				if (utils::HasKey(entityLUT, fromEntity))
-				{
-					T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
-					return std::cref(*component);
-				}
-				else if (next != nullptr)
-				{
-					return next->Reference<T>(fromEntity);
-				}
-			}
-
-			return std::nullopt;
-		}
-
-		size_t SizeOfData() const { return sizeOfData; }
-		size_t CurrentSize() const { return currentSize; }
-		bool IsEmpty() const { return currentSize == 0; }
-		bool IsFull() const { return currentSize == maxNumOfComponents; }
-		bool Supports(ComponentID componentID) const { return utils::HasKey(componentRanges, componentID); }
-		template <typename T>
-		bool Supports() const { return Supports(QueryComponentID<T>()); }
-		bool Contains(Entity entity) const { return utils::HasKey(entityLUT, entity) || ((next != nullptr) ? next->Contains(entity) : false); }
-
-		ComponentRange QueryComponentRange(ComponentID componentID) const
-		{
-			if (Supports(componentID))
-			{
-				return componentRanges.find(componentID)->second;
-			}
-
-			return ComponentRange();
-		}
-
-		template <typename T>
-		ComponentRange QueryComponentRange() const
-		{
-			return QueryComponentRange(QueryComponentID<T>());
-		}
-
-	private:
-		Chunk(const std::unordered_map<ComponentID, ComponentRange>& componentRanges,
-			size_t sizeOfData,
-			size_t maxNumOfComponents) :
-			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_ALIGNMENT)),
-			componentRanges(componentRanges),
-			next(nullptr),
-			sizeOfData(sizeOfData),
-			maxNumOfComponents(maxNumOfComponents),
-			currentSize(0)
-		{
-		}
-
-		Chunk* CloneEmpty() const
-		{
-			return new Chunk(componentRanges, sizeOfData, maxNumOfComponents);
-		}
-
-		Chunk& AttachToWithChunkResult(Entity entity)
-		{
-			if (IsFull())
-			{
-				if (next == nullptr)
-				{
-					next = CloneEmpty();
-				}
-
-				return next->AttachToWithChunkResult(entity);
-			}
-			else
+			bool Remove(Entity entity)
 			{
 				if (!utils::HasKey(entityLUT, entity))
 				{
-					entityLUT[entity] = currentSize;
-					++currentSize;
-					return (*this);
+					if (next != nullptr)
+					{
+						return next->Remove(entity);
+					}
 				}
+				else
+				{
+					const size_t sizeOfData = SizeOfData();
+					void* dest = OffsetAddressOf(entity);
+					void* src = OffsetAddressOfBack();
+					std::memcpy(dest, src, sizeOfData);
+ 					std::memset(src, 0, sizeOfData);
+
+					const size_t targetEntityOffset = OffsetOf(entity);
+					entityLUT.erase(entity);
+
+					for (auto& entityOffsetPair : entityLUT)
+					{
+						Entity entity = entityOffsetPair.first;
+						size_t offset = entityOffsetPair.second;
+						if (offset == (currentSize - 1))
+						{
+							entityLUT[entity] = targetEntityOffset;
+							break;
+						}
+					}
+
+					--currentSize;
+					return true;
+				}
+
+				return false;
 			}
 
-			return (*this);
+			template <typename T>
+			OptionalRef<T> Reference(const Entity fromEntity)
+			{
+				if (Supports<T>())
+				{
+					if (utils::HasKey(entityLUT, fromEntity))
+					{
+						T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
+						return std::ref(*component);
+					}
+					else if (next != nullptr)
+					{
+						return next->Reference<T>(fromEntity);
+					}
+				}
+
+				return std::nullopt;
+			}
+
+			template <typename T>
+			OptionalRef<const T> Reference(const Entity fromEntity) const
+			{
+				if (Supports<T>())
+				{
+					if (utils::HasKey(entityLUT, fromEntity))
+					{
+						T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
+						return std::cref(*component);
+					}
+					else if (next != nullptr)
+					{
+						return next->Reference<T>(fromEntity);
+					}
+				}
+
+				return std::nullopt;
+			}
+
+			inline size_t SizeOfData() const
+			{
+				const auto& range = componentRanges[componentRanges.size() - 1].second;
+				return range.Size + range.Offset;
+			}
+			size_t CurrentSize() const { return currentSize; }
+			inline size_t MaxNumOfComponents() const { return (DEFAULT_CHUNK_SIZE / SizeOfData()) - 1; }
+			bool IsEmpty() const { return currentSize == 0; }
+			bool IsFull() const { return currentSize == MaxNumOfComponents(); }
+			bool Supports(ComponentID componentID) const { return componentID != INVALID_COMPONET_ID && utils::HasKeyV(componentRanges, componentID); }
+			template <typename T>
+			bool Supports() const { return Supports(QueryComponentID<T>()); }
+			bool Contains(Entity entity) const
+			{
+				assert(mem != nullptr);
+				return utils::HasKey(entityLUT, entity) || ((next != nullptr) ? next->Contains(entity) : false);
+			}
+
+			ComponentRange QueryComponentRange(ComponentID componentID) const
+			{
+				if (Supports(componentID))
+				{
+					return std::find_if(componentRanges.begin(), componentRanges.end(),
+						[componentID](const auto& targetData)
+						{
+							return targetData.first == componentID;
+						})->second;
+				}
+
+				return ComponentRange();
+			}
+
+			template <typename T>
+			ComponentRange QueryComponentRange() const
+			{
+				return QueryComponentRange(QueryComponentID<T>());
+			}
+
+		private:
+			Chunk* CloneEmpty() const
+			{
+				return new Chunk(pool, componentRanges);
+			}
+
+			Chunk& AttachToWithChunkResult(Entity entity)
+			{
+				if (IsFull())
+				{
+					if (next == nullptr)
+					{
+						next = CloneEmpty();
+					}
+
+					return next->AttachToWithChunkResult(entity);
+				}
+				else
+				{
+					if (!utils::HasKey(entityLUT, entity))
+					{
+						entityLUT[entity] = currentSize;
+						++currentSize;
+						return (*this);
+					}
+				}
+
+				return (*this);
+			}
+
+			size_t OffsetOf(Entity entity) const
+			{
+				return entityLUT.find(entity)->second * SizeOfData();
+			}
+
+			void* OffsetAddressOf(Entity entity) const
+			{
+				return (void*)((uintptr_t)mem + OffsetOf(entity));
+			}
+
+			size_t OffsetOf(Entity entity, ComponentID componentID) const
+			{
+				const ComponentRange componentRange = QueryComponentRange(componentID);
+				return OffsetOf(entity) + componentRange.Offset;
+			}
+
+			void* OffsetAddressOf(Entity entity, ComponentID componentID) const
+			{
+				return (void*)((uintptr_t)mem + OffsetOf(entity, componentID));
+			}
+
+			void* OffsetAddressOfBack() const
+			{
+				return (void*)((uintptr_t)mem + (SizeOfData() * (currentSize - 1)));
+			}
+
+		private:
+			ChunkPool& pool;
+			void* mem;
+			std::unordered_map<Entity, size_t> entityLUT;
+			std::vector<std::pair<ComponentID, ComponentRange>> componentRanges;
+			size_t currentSize;
+			Chunk* next;
+
+		};
+
+	public:
+		ChunkPool() :
+			mem(_aligned_malloc(DEFAULT_CHUNK_POOL_SIZE, DEFAULT_CHUNK_ALIGNMENT))
+		{
+			if (mem != nullptr)
+			{
+				std::memset(mem, 0, DEFAULT_CHUNK_POOL_SIZE);
+			}
+
+			for (size_t offset = 0; (offset + DEFAULT_CHUNK_SIZE) < DEFAULT_CHUNK_POOL_SIZE; offset += DEFAULT_CHUNK_SIZE)
+			{
+				void* rawPointer = (void*)((uintptr_t)mem + offset);
+				freeChunks.push(rawPointer);
+			}
 		}
 
-		size_t OffsetOf(Entity entity) const
+		~ChunkPool()
 		{
-			return entityLUT.find(entity)->second * sizeOfData;
+			if (mem != nullptr)
+			{
+				_aligned_free(mem);
+			}
 		}
 
-		void* OffsetAddressOf(Entity entity) const
+		void* Allocate()
 		{
-			return (void*)((uintptr_t)mem + OffsetOf(entity));
+			void* dest = freeChunks.front();
+			freeChunks.pop();
+			return dest;
 		}
 
-		size_t OffsetOf(Entity entity, ComponentID componentID) const
+		void Deallocate(void* chunk)
 		{
-			const ComponentRange& componentRange = componentRanges.find(componentID)->second;
-			return OffsetOf(entity) + componentRange.Offset;
-		}
-
-		void* OffsetAddressOf(Entity entity, ComponentID componentID) const
-		{
-			return (void*)((uintptr_t)mem + OffsetOf(entity, componentID));
-		}
-
-		void* OffsetAddressOfBack() const
-		{
-			return (void*)((uintptr_t)mem + (sizeOfData * (currentSize - 1)));
+			if (chunk != nullptr)
+			{
+				freeChunks.push(chunk);
+			}
 		}
 
 	private:
 		void* mem;
-		std::unordered_map<ComponentID, ComponentRange> componentRanges;
-		std::unordered_map<Entity, size_t> entityLUT;
-		Chunk* next;
-		size_t sizeOfData;
-		size_t maxNumOfComponents;
-		size_t currentSize;
+		std::queue<void*> freeChunks;
 
 	};
 
+	using Chunk = ChunkPool::Chunk;
 	class ComponentArchive
 	{
 	public:
@@ -590,6 +664,17 @@ namespace sy
 			return Archetype();
 		}
 
+		template <typename T>
+		bool SupportComponent() const
+		{
+			return utils::HasKey(componentInfoLUT, QueryComponentID<T>());
+		}
+
+		bool SupportComponent(ComponentID componentID) const
+		{
+			return utils::HasKey(componentInfoLUT, componentID);
+		}
+
 	private:
 		ComponentArchive() = default;
 
@@ -606,7 +691,7 @@ namespace sy
 			archetypeChunkLUT.emplace_back(
 				std::make_pair(
 					archetype,
-					new Chunk(RetrieveComponentInfoFromArchetype(archetype))));
+					new Chunk(chunkPool, RetrieveComponentInfoFromArchetype(archetype))));
 
 			return *archetypeChunkLUT.back().second;
 		}
@@ -624,11 +709,46 @@ namespace sy
 		}
 
 	private:
+		ChunkPool chunkPool;
 		std::unordered_map<ComponentID, ComponentInfo> componentInfoLUT;
 		std::unordered_map<Entity, Archetype> archetypeLUT;
-		std::vector<std::pair<Archetype, Chunk*>> archetypeChunkLUT;
+		std::vector<std::pair<Archetype, ChunkPool::Chunk*>> archetypeChunkLUT;
 
 	};
+
+	std::vector<Entity> FilterAll(const std::vector<Entity>& entities, std::vector<ComponentID> components)
+	{
+		const ComponentArchive& componentArchive = ComponentArchive::Get();
+		std::vector<Entity> result;
+		result.reserve(entities.size());
+		for (const Entity entity : entities)
+		{
+			bool bIsSufficient = true;
+			ComponentArchive::Archetype archetype = componentArchive.QueryArchetype(entity);
+			for (ComponentID componentID : components)
+			{
+				if (!utils::HasKey(archetype, componentID))
+				{
+					bIsSufficient = false;
+					break;
+				}
+			}
+
+			if (bIsSufficient)
+			{
+				result.emplace_back(entity);
+			}
+		}
+
+		return result;
+	}
+
+	template <typename... T>
+	inline std::vector<Entity> FilterAll(const std::vector<Entity>& entities)
+	{
+		auto initList = { QueryComponentID<T>()... };
+		return FilterAll(entities, std::vector<ComponentID>{ initList });
+	}
 }
 
 #define COMPONENT_TYPE_HASH(x) sy::utils::ELFHash(#x)
