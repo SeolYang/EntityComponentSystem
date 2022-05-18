@@ -49,6 +49,7 @@ namespace sy
 	template <typename T>
 	using OptionalRef = std::optional<std::reference_wrapper<T>>;
 
+	// Bigger chunk size = lower level of indirection
 	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
 	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
 	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
@@ -172,7 +173,7 @@ namespace sy
 		Chunk& operator=(const Chunk&) = delete;
 		Chunk& operator=(Chunk&&) = delete;
 
-		bool AttachTo(Entity entity)
+		bool Create(Entity entity)
 		{
 			if (IsFull())
 			{
@@ -181,7 +182,7 @@ namespace sy
 					next = CloneEmpty();
 				}
 
-				return next->AttachTo(entity);
+				return next->Create(entity);
 			}
 			else
 			{
@@ -196,8 +197,8 @@ namespace sy
 			return false;
 		}
 
-		// Only if, for transfer data between superset and subset.
-		bool TransferToOtherChunk(Entity target, Chunk& destChunk)
+		// Use this function only for operate to transfer data between superset and subset.
+		bool TransferEntityTo(Entity target, Chunk& destChunk)
 		{
 			if (utils::HasKey(entityLUT, target))
 			{
@@ -213,8 +214,8 @@ namespace sy
 							ComponentRange srcComponentRange = componentInfo.second;
 							ComponentRange destComponentRange = actualDestChunk.QueryComponentRange(targetComponentID);
 
-							void* destOffset = actualDestChunk.OffsetAddressOfEntity(target);
-							void* srcOffset = actualSrcChunk.OffsetAddressOfEntity(target);
+							void* destOffset = actualDestChunk.OffsetAddressOf(target);
+							void* srcOffset = actualSrcChunk.OffsetAddressOf(target);
 							ComponentRange::ComponentCopy(destOffset, srcOffset, destComponentRange, srcComponentRange);
 						}
 					}
@@ -227,7 +228,7 @@ namespace sy
 			{
 				if (next != nullptr)
 				{
-					return next->TransferToOtherChunk(target, destChunk);
+					return next->TransferEntityTo(target, destChunk);
 				}
 			}
 
@@ -245,12 +246,12 @@ namespace sy
 			}
 			else
 			{
-				void* dest = OffsetAddressOfEntity(entity);
+				void* dest = OffsetAddressOf(entity);
 				void* src = OffsetAddressOfBack();
 				std::memcpy(dest, src, sizeOfData);
 				std::memset(src, 0, sizeOfData);
 
-				const size_t targetEntityOffset = OffsetOfEntity(entity);
+				const size_t targetEntityOffset = OffsetOf(entity);
 				entityLUT.erase(entity);
 
 				for (auto& entityOffsetPair : entityLUT)
@@ -272,18 +273,18 @@ namespace sy
 		}
 
 		template <typename T>
-		OptionalRef<T> Retrieve(const Entity entity)
+		OptionalRef<T> Reference(const Entity fromEntity)
 		{
 			if (Supports<T>())
 			{
-				if (utils::HasKey(entityLUT, entity))
+				if (utils::HasKey(entityLUT, fromEntity))
 				{
-					T* component = reinterpret_cast<T*>(OffsetAddressOfEntityComponent(entity, QueryComponentID<T>()));
+					T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
 					return std::ref(*component);
 				}
 				else if (next != nullptr)
 				{
-					return next->Retrieve<T>(entity);
+					return next->Reference<T>(fromEntity);
 				}
 			}
 
@@ -291,18 +292,18 @@ namespace sy
 		}
 
 		template <typename T>
-		OptionalRef<const T> Retrieve(const Entity entity) const
+		OptionalRef<const T> Reference(const Entity fromEntity) const
 		{
 			if (Supports<T>())
 			{
-				if (utils::HasKey(entityLUT, entity))
+				if (utils::HasKey(entityLUT, fromEntity))
 				{
-					T* component = reinterpret_cast<T*>(OffsetAddressOfEntityComponent(entity, QueryComponentID<T>()));
+					T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
 					return std::cref(*component);
 				}
 				else if (next != nullptr)
 				{
-					return next->Retrieve<T>(entity);
+					return next->Reference<T>(fromEntity);
 				}
 			}
 
@@ -376,25 +377,25 @@ namespace sy
 			return (*this);
 		}
 
-		size_t OffsetOfEntity(Entity entity) const
+		size_t OffsetOf(Entity entity) const
 		{
 			return entityLUT.find(entity)->second * sizeOfData;
 		}
 
-		void* OffsetAddressOfEntity(Entity entity) const
+		void* OffsetAddressOf(Entity entity) const
 		{
-			return (void*)((uintptr_t)mem + OffsetOfEntity(entity));
+			return (void*)((uintptr_t)mem + OffsetOf(entity));
 		}
 
-		size_t OffsetOfEntityComponent(Entity entity, ComponentID componentID) const
+		size_t OffsetOf(Entity entity, ComponentID componentID) const
 		{
 			const ComponentRange& componentRange = componentRanges.find(componentID)->second;
-			return OffsetOfEntity(entity) + componentRange.Offset;
+			return OffsetOf(entity) + componentRange.Offset;
 		}
 
-		void* OffsetAddressOfEntityComponent(Entity entity, ComponentID componentID) const
+		void* OffsetAddressOf(Entity entity, ComponentID componentID) const
 		{
-			return (void*)((uintptr_t)mem + OffsetOfEntityComponent(entity, componentID));
+			return (void*)((uintptr_t)mem + OffsetOf(entity, componentID));
 		}
 
 		void* OffsetAddressOfBack() const
@@ -439,7 +440,7 @@ namespace sy
 		}
 
 		template <typename T>
-		void Archiving()
+		void Archive()
 		{
 			componentInfoLUT[QueryComponentID<T>()] = ComponentInfo::Generate<T>();
 		}
@@ -458,16 +459,17 @@ namespace sy
 				{
 					const auto oldComponentSet = componentSet;
 					componentSet.insert(componentID);
-					auto& targetChunk = FindOrCreateArchetypeChunkIfDoesNotExist(componentSet);
+					auto& newChunk = FindOrCreateArchetypeChunk(componentSet);
 					if (!oldComponentSet.empty())
 					{
 						// Move Data from old chunk to target(new) chunk
-						auto& oldChunk = FindOrCreateArchetypeChunkIfDoesNotExist(oldComponentSet);
+						auto& oldChunk = FindOrCreateArchetypeChunk(oldComponentSet);
 						// subset to superset
-						return oldChunk.TransferToOtherChunk(entity, targetChunk);
+						return oldChunk.TransferEntityTo(entity, newChunk);
 					}
 
-					return targetChunk.AttachTo(entity);
+					// Entity was empty, so there a no data to transfer.
+					return newChunk.Create(entity);
 				}
 
 			}
@@ -492,13 +494,13 @@ namespace sy
 					{
 						const auto oldComponentSet = componentSet;
 						componentSet.erase(componentID);
-						auto& oldChunk = FindOrCreateArchetypeChunkIfDoesNotExist(oldComponentSet);
-						auto& targetChunk = FindOrCreateArchetypeChunkIfDoesNotExist(componentSet);
+						auto& oldChunk = FindOrCreateArchetypeChunk(oldComponentSet);
 						if (!componentSet.empty())
 						{
+							auto& targetChunk = FindOrCreateArchetypeChunk(componentSet);
 							// Move Data from old chunk to target(new) chunk
 							// superset to subset
-							return oldChunk.TransferToOtherChunk(entity, targetChunk);
+							return oldChunk.TransferEntityTo(entity, targetChunk);
 						}
 
 						return oldChunk.Remove(entity);
@@ -516,24 +518,24 @@ namespace sy
 		}
 
 		template <typename T>
-		OptionalRef<T> Retrieve(const Entity entity)
+		OptionalRef<T> Reference(const Entity fromEntity)
 		{
-			if (Contains<T>(entity))
+			if (Contains<T>(fromEntity))
 			{
-				Chunk& chunk = FindOrCreateArchetypeChunkIfDoesNotExist(entityLUT[entity]);
-				return chunk.Retrieve<T>(entity);
+				Chunk& chunk = FindOrCreateArchetypeChunk(entityLUT[fromEntity]);
+				return chunk.Reference<T>(fromEntity);
 			}
 
 			return std::nullopt;
 		}
 
 		template <typename T>
-		OptionalRef<const T> Retrieve(const Entity entity) const
+		OptionalRef<const T> Reference(const Entity fromEntity) const
 		{
-			if (Contains<T>(entity))
+			if (Contains<T>(fromEntity))
 			{
-				Chunk& chunk = FindOrCreateArchetypeChunkIfDoesNotExist(entityLUT[entity]);
-				return chunk.Retrieve<T>(entity);
+				Chunk& chunk = FindOrCreateArchetypeChunkIfDoesNotExist(entityLUT[fromEntity]);
+				return chunk.Reference<T>(fromEntity);
 			}
 
 			return std::nullopt;
@@ -575,7 +577,7 @@ namespace sy
 	private:
 		ComponentArchive() = default;
 
-		Chunk& FindOrCreateArchetypeChunkIfDoesNotExist(const std::set<ComponentID>& componentSet)
+		Chunk& FindOrCreateArchetypeChunk(const std::set<ComponentID>& componentSet)
 		{
 			for (auto& chunkListPair : archetypeChunkLUT)
 			{
@@ -621,7 +623,7 @@ struct ComponentType##Registeration \
 	ComponentType##Registeration() \
 	{ \
 		auto& archive = sy::ComponentArchive::Get(); \
-		archive.Archiving<ComponentType>(); \
+		archive.Archive<ComponentType>(); \
 	}	\
 private: \
 	static ComponentType##Registeration registeration; \
