@@ -10,6 +10,7 @@
 #include <atomic>
 #include <set>
 #include <unordered_set>
+#include <cassert>
 
 namespace sy::utils
 {
@@ -34,6 +35,12 @@ namespace sy::utils
 		}
 
 		return hash;
+	}
+
+	template <typename T, typename Key>
+	bool HasKey(const T& data, const Key& key)
+	{
+		return data.find(key) != data.end();
 	}
 }
 
@@ -102,6 +109,13 @@ namespace sy
 
 	class Chunk
 	{
+	private:
+		struct ComponentRange
+		{
+			size_t Offset = 0;
+			size_t Size = 0;
+		};
+
 	public:
 		Chunk(const std::vector<ComponentInfo>& componentInfos) :
 			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_ALIGNMENT)),
@@ -116,7 +130,11 @@ namespace sy
 			size_t offset = 0;
 			for (const auto& info : componentInfos)
 			{
-				componentOffsetAndSize[info.ID] = std::make_pair(offset, info.Size);
+				componentRanges[info.ID] = ComponentRange{
+					.Offset = offset,
+					.Size = info.Size
+				};
+
 				offset += info.Size;
 			}
 
@@ -151,7 +169,7 @@ namespace sy
 			{
 				if (next == nullptr)
 				{
-					next = new Chunk(componentOffsetAndSize, sizeOfData, maxNumOfComponents);
+					next = CloneEmpty();
 				}
 
 				return next->AttachTo(entity);
@@ -172,23 +190,23 @@ namespace sy
 		// Only if, for transfer data between superset and subset.
 		bool TransferToOtherChunk(Entity target, Chunk& destChunk)
 		{
-			if (entityLUT.find(target) != entityLUT.end())
+			if (utils::HasKey(entityLUT, target))
 			{
 				if (!destChunk.Contains(target))
 				{
 					Chunk& actualSrcChunk = (*this);
 					Chunk& actualDestChunk = destChunk.AttachToWithChunkResult(target);
-					for (auto& componentInfo : actualSrcChunk.componentOffsetAndSize)
+					for (auto& componentInfo : actualSrcChunk.componentRanges)
 					{
 						if (actualDestChunk.Supports(componentInfo.first))
 						{
-							size_t srcComponentOffset = componentInfo.second.first;
-							size_t srcComponentSize = componentInfo.second.second;
-							const auto& destComponentInfo = actualDestChunk.componentOffsetAndSize[componentInfo.first];
+							ComponentRange& srcComponentRange = componentInfo.second;
+							const auto& destComponentRange = actualDestChunk.componentRanges[componentInfo.first];
 
-							void* dest = (void*)((uintptr_t)actualDestChunk.mem + destComponentInfo.first);
-							void* src = (void*)((uintptr_t)actualSrcChunk.mem + srcComponentOffset);
-							std::memcpy(dest, src, srcComponentSize);
+							void* dest = (void*)((uintptr_t)actualDestChunk.mem + destComponentRange.Offset);
+							void* src = (void*)((uintptr_t)actualSrcChunk.mem + srcComponentRange.Offset);
+							assert(srcComponentRange.Size == destComponentRange.Size);
+							std::memcpy(dest, src, srcComponentRange.Size);
 						}
 					}
 
@@ -250,11 +268,11 @@ namespace sy
 		{
 			if (Supports<T>())
 			{
-				if (entityLUT.find(entity) != entityLUT.end())
+				if (utils::HasKey(entityLUT, entity))
 				{
 					const size_t offset = sizeOfData * entityLUT[entity];
-					const size_t componentOffset = componentOffsetAndSize[QueryComponentID<T>()].first;
-					T* component = reinterpret_cast<T*>(((uintptr_t)mem) + offset + componentOffset);
+					const ComponentRange& componentRange = componentRanges[QueryComponentID<T>()];
+					T* component = reinterpret_cast<T*>(((uintptr_t)mem) + offset + componentRange.Offset);
 					return std::ref(*component);
 				}
 				else if (next != nullptr)
@@ -270,25 +288,27 @@ namespace sy
 		size_t CurrentSize() const { return currentSize; }
 		bool IsEmpty() const { return currentSize == 0; }
 		bool IsFull() const { return currentSize == maxNumOfComponents; }
-		bool Supports(ComponentID componentID) const { return componentOffsetAndSize.find(componentID) != componentOffsetAndSize.end(); }
+		bool Supports(ComponentID componentID) const { return utils::HasKey(componentRanges, componentID); }
 		template <typename T>
 		bool Supports() const { return Supports(QueryComponentID<T>()); }
-		bool Contains(Entity entity) const 
-		{ 
-			return entityLUT.find(entity) != entityLUT.end() || ((next != nullptr) ? next->Contains(entity) : false);
-		}
+		bool Contains(Entity entity) const { return utils::HasKey(entityLUT, entity) || ((next != nullptr) ? next->Contains(entity) : false); }
 
 	private:
-		Chunk(const std::unordered_map<ComponentID, std::pair<size_t, size_t>>& componentOffsetAndSize,
+		Chunk(const std::unordered_map<ComponentID, ComponentRange>& componentRanges,
 			size_t sizeOfData,
 			size_t maxNumOfComponents) :
 			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_ALIGNMENT)),
-			componentOffsetAndSize(componentOffsetAndSize),
+			componentRanges(componentRanges),
 			next(nullptr),
 			sizeOfData(sizeOfData),
 			maxNumOfComponents(maxNumOfComponents),
 			currentSize(0)
 		{
+		}
+
+		Chunk* CloneEmpty() const
+		{
+			return new Chunk(componentRanges, sizeOfData, maxNumOfComponents);
 		}
 
 		Chunk& AttachToWithChunkResult(Entity entity)
@@ -297,14 +317,14 @@ namespace sy
 			{
 				if (next == nullptr)
 				{
-					next = new Chunk(componentOffsetAndSize, sizeOfData, maxNumOfComponents);
+					next = CloneEmpty();
 				}
 
 				return next->AttachToWithChunkResult(entity);
 			}
 			else
 			{
-				if (!Contains(entity))
+				if (!utils::HasKey(entityLUT, entity))
 				{
 					entityLUT[entity] = currentSize;
 					++currentSize;
@@ -322,12 +342,13 @@ namespace sy
 
 		size_t OffsetOfEntityComponent(Entity entity, ComponentID componentID) const
 		{
-			return OffsetOfEntity(entity) + componentOffsetAndSize.find(componentID)->first;
+			const ComponentRange& componentRange = componentRanges.find(componentID)->second;
+			return OffsetOfEntity(entity) + componentRange.Offset;
 		}
 
 	private:
 		void* mem;
-		std::unordered_map<ComponentID, std::pair<size_t, size_t>> componentOffsetAndSize;
+		std::unordered_map<ComponentID, ComponentRange> componentRanges;
 		std::unordered_map<Entity, size_t> entityLUT;
 		Chunk* next;
 		size_t sizeOfData;
@@ -371,13 +392,13 @@ namespace sy
 		{
 			if (componentID != INVALID_COMPONET_ID)
 			{
-				if (entityLUT.find(entity) == entityLUT.end())
+				if (!utils::HasKey(entityLUT, entity))
 				{
 					entityLUT[entity] = { };
 				}
 
 				auto& componentSet = entityLUT[entity];
-				if (componentSet.find(componentID) == componentSet.end())
+				if (!utils::HasKey(componentSet, componentID))
 				{
 					const auto oldComponentSet = componentSet;
 					componentSet.insert(componentID);
@@ -406,13 +427,12 @@ namespace sy
 
 		bool DetachFrom(const Entity entity, const ComponentID componentID)
 		{
-			// @TODO
 			if (componentID != INVALID_COMPONET_ID)
 			{
 				if (Contains(entity, componentID))
 				{
 					auto& componentSet = entityLUT[entity];
-					if (componentSet.find(componentID) != componentSet.end())
+					if (utils::HasKey(componentSet, componentID))
 					{
 						const auto oldComponentSet = componentSet;
 						componentSet.erase(componentID);
