@@ -61,7 +61,10 @@ DefineComponent(Invisible);
 
 int main()
 {
-	std::this_thread::sleep_for(std::chrono::seconds(3));
+	constexpr ComponentID visibeID = QueryComponentID<Visible>();
+	constexpr ComponentID hittableID = QueryComponentID<Hittable>();
+	constexpr ComponentID invisibleID = QueryComponentID<Invisible>();
+	std::this_thread::sleep_for(std::chrono::seconds(2));
 	{
 		auto& componentArchive = ComponentArchive::Instance();
 
@@ -119,17 +122,17 @@ int main()
 		assert(hittable->t == referenceHittable.t);
 		assert(invisible->Duration == referenceInvisible.Duration);
 
-		//componentArchive.Detach<Visible>(e0);
-		//hittable = componentArchive.Get<Hittable>(e0);
-		//invisible = componentArchive.Get<Invisible>(e0);
-		//visible = componentArchive.Get<Visible>(e0);
-		//assert(visible == nullptr);
-		//assert(hittable != nullptr);
-		//assert(invisible != nullptr);
-		//assert(hittable->HitCount == referenceHittable.HitCount);
-		//assert(hittable->HitDistance == referenceHittable.HitDistance);
-		//assert(hittable->t == referenceHittable.t);
-		//assert(invisible->Duration == referenceInvisible.Duration);
+		componentArchive.Detach<Visible>(e0);
+		hittable = componentArchive.Get<Hittable>(e0);
+		invisible = componentArchive.Get<Invisible>(e0);
+		visible = componentArchive.Get<Visible>(e0);
+		assert(visible == nullptr);
+		assert(hittable != nullptr);
+		assert(invisible != nullptr);
+		assert(hittable->HitCount == referenceHittable.HitCount);
+		assert(hittable->HitDistance == referenceHittable.HitDistance);
+		assert(hittable->t == referenceHittable.t);
+		assert(invisible->Duration == referenceInvisible.Duration);
 
 		// Interation test
 		std::vector<Entity> entities;

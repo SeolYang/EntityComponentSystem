@@ -455,7 +455,7 @@ namespace sy
 
 		static ComponentArchive& Instance()
 		{
-			std::call_once(onceFlag, []()
+			std::call_once(instanceCreationOnceFlag, []()
 				{
 					instance.reset(new ComponentArchive);
 				});
@@ -465,10 +465,10 @@ namespace sy
 		
 		static void DestroyInstance()
 		{
-			if (instance != nullptr)
-			{
-				delete instance.release();
-			}
+			std::call_once(instanceDestructionOnceFlag, []()
+				{
+					delete instance.release();
+				});
 		}
 
 		template <ComponentType T>
@@ -552,15 +552,15 @@ namespace sy
 				Archetype oldArchetype = archetype;
 				archetype.insert(componentID);
 
-				ChunkList& chunkList = FindOrCreateChunkList(archetype);
-				void* entityAddress = chunkList.Create(entity);
+				size_t chunkList = FindOrCreateChunkList(archetype);
+				void* entityAddress = ReferenceChunkList(chunkList).Create(entity);
 				if (entityAddress != nullptr && !oldArchetype.empty())
 				{
-					ChunkList& oldChunkList = FindOrCreateChunkList(oldArchetype);
-					ChunkList::MoveEntity(entity, oldChunkList, chunkList);
+					size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
+					ChunkList::MoveEntity(entity, ReferenceChunkList(oldChunkList), ReferenceChunkList(chunkList));
 				}
 
-				result = reinterpret_cast<Component*>(chunkList.AddressOf(entity, componentID));
+				result = reinterpret_cast<Component*>(ReferenceChunkList(chunkList).AddressOf(entity, componentID));
 
 				if (bCallDefaultConstructor)
 				{
@@ -598,20 +598,22 @@ namespace sy
 				Archetype oldArchetype = archetype;
 				archetype.erase(componentID);
 
-				ChunkList& oldChunkList = FindOrCreateChunkList(oldArchetype);
-				void* detachComponentPtr = oldChunkList.AddressOf(entity, componentID);
+				size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
+				void* detachComponentPtr = ReferenceChunkList(oldChunkList).AddressOf(entity, componentID);
 				const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 				dynamicComponentData.Destructor(detachComponentPtr);
 
 				if (!archetype.empty())
 				{
-					ChunkList& newChunkList = FindOrCreateChunkList(oldArchetype);
-					newChunkList.Create(entity);
-					ChunkList::MoveEntity(entity, oldChunkList, newChunkList);
+					size_t newChunkList = FindOrCreateChunkList(archetype);
+					ReferenceChunkList(newChunkList).Create(entity);
+					ChunkList::MoveEntity(entity,
+						ReferenceChunkList(oldChunkList),
+						ReferenceChunkList(newChunkList));
 				}
 				else
 				{
-					oldChunkList.Destroy(entity);
+					ReferenceChunkList(oldChunkList).Destroy(entity);
 				}
 			}
 		}
@@ -635,15 +637,15 @@ namespace sy
 				const auto& archetype = archetypeLUT[entity];
 				if (!archetype.empty())
 				{
-					ChunkList& chunkList = FindOrCreateChunkList(archetype);
+					size_t chunkList = FindOrCreateChunkList(archetype);
 					for (ComponentID componentID : archetype)
 					{
-						void* detachComponentPtr = chunkList.AddressOf(entity, componentID);
+						void* detachComponentPtr = ReferenceChunkList(chunkList).AddressOf(entity, componentID);
 						const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 						dynamicComponentData.Destructor(detachComponentPtr);
 					}
 
-					chunkList.Destroy(entity);
+					ReferenceChunkList(chunkList).Destroy(entity);
 				}
 
 				archetypeLUT.erase(entity);
@@ -653,18 +655,28 @@ namespace sy
 	private:
 		ComponentArchive() = default;
 
-		ChunkList& FindOrCreateChunkList(const Archetype& archetype)
+		size_t FindOrCreateChunkList(const Archetype& archetype)
 		{
-			for (auto& pair : chunkListLUT)
+			size_t idx = 0;
+			for (; idx < chunkListLUT.size(); ++idx)
 			{
-				if (pair.first == archetype)
+				if (chunkListLUT[idx].first == archetype)
 				{
-					return pair.second;
+					return idx;
 				}
 			}
 
 			chunkListLUT.emplace_back(archetype, ChunkList(RetrieveComponentInfosFromArchetype(archetype)));
-			return chunkListLUT.back().second;
+			return idx;
+		}
+
+		/**
+		* To prevent vector reallocations, always ref chunk list through this method.
+		* And, Do not reference ChunkList directly!!!
+		*/
+		inline ChunkList& ReferenceChunkList(size_t idx)
+		{
+			return chunkListLUT[idx].second;
 		}
 
 		std::vector<ComponentInfo> RetrieveComponentInfosFromArchetype(const Archetype& archetype) const
@@ -700,7 +712,8 @@ namespace sy
 
 	private:
 		static inline std::unique_ptr<ComponentArchive> instance;
-		static inline std::once_flag onceFlag;
+		static inline std::once_flag instanceCreationOnceFlag;
+		static inline std::once_flag instanceDestructionOnceFlag;
 		std::unordered_map<ComponentID, DynamicComponentData> dynamicComponentDataLUT;
 		std::unordered_map<Entity, Archetype> archetypeLUT;
 		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
