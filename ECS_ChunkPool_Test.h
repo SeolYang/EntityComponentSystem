@@ -156,11 +156,6 @@ namespace sy::test
 				next(nullptr),
 				currentSize(0)
 			{
-				if (mem != nullptr)
-				{
- 					std::memset(mem, 0, DEFAULT_CHUNK_SIZE);
-				}
-
 				size_t offset = 0;
 				componentRanges.reserve(componentInfos.size());
 				for (size_t idx = 0; idx < componentInfos.size(); ++idx)
@@ -276,7 +271,6 @@ namespace sy::test
 					void* dest = OffsetAddressOf(entity);
 					void* src = OffsetAddressOfBack();
 					std::memcpy(dest, src, sizeOfData);
- 					std::memset(src, 0, sizeOfData);
 
 					const size_t targetEntityOffset = OffsetOf(entity);
 					entityLUT.erase(entity);
@@ -297,6 +291,26 @@ namespace sy::test
 				}
 
 				return false;
+			}
+
+			template <typename T, typename... Args>
+			OptionalRef<T> Reference(const Entity fromEntity, Args&&... args)
+			{
+				if (Supports<T>())
+				{
+					if (utils::HasKey(entityLUT, fromEntity))
+					{
+						T* component = reinterpret_cast<T*>(OffsetAddressOf(fromEntity, QueryComponentID<T>()));
+						component = new (component) T(std::forward<Args>(args)...);
+						return std::ref(*component);
+					}
+					else if (next != nullptr)
+					{
+						return next->Reference<T>(fromEntity);
+					}
+				}
+
+				return std::nullopt;
 			}
 
 			template <typename T>
@@ -445,11 +459,6 @@ namespace sy::test
 		ChunkPool() :
 			mem(_aligned_malloc(DEFAULT_CHUNK_POOL_SIZE, DEFAULT_CHUNK_ALIGNMENT))
 		{
-			if (mem != nullptr)
-			{
-				std::memset(mem, 0, DEFAULT_CHUNK_POOL_SIZE);
-			}
-
 			dataOffset = sizeof(Chunk) + utils::AlignForwardAdjustment((void*)((uintptr_t)mem + sizeof(Chunk)), DEFAULT_CHUNK_ALIGNMENT);
 			stride = dataOffset + DEFAULT_CHUNK_SIZE;
 			for (size_t offset = 0; (offset + stride) < DEFAULT_CHUNK_POOL_SIZE; offset += stride)
@@ -470,6 +479,7 @@ namespace sy::test
 		template <typename... Args>
 		Chunk* Allocate(Args&&... args)
 		{
+			assert(!freeChunks.empty());
 			void* allocated = freeChunks.front();
 			freeChunks.pop();
 			return new (allocated) Chunk(
@@ -600,6 +610,18 @@ namespace sy::test
 		bool Detach(const Entity fromEntity)
 		{
 			return Detach(QueryComponentID<T>(), fromEntity);
+		}
+
+		template <typename T, typename... Args>
+		OptionalRef<T> Reference(const Entity fromEntity, Args&&... args)
+		{
+			if (Contains<T>(fromEntity))
+			{
+				Chunk& chunk = FindOrCreateArchetypeChunk(archetypeLUT[fromEntity]);
+				return chunk.Reference<T, Args...>(fromEntity, std::forward<Args>(args)...);
+			}
+
+			return std::nullopt;
 		}
 
 		template <typename T>
