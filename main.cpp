@@ -109,6 +109,7 @@ int main()
 		visible = componentArchive.Get<Visible>(e0);
 		hittable = componentArchive.Get<Hittable>(e0);
 		assert(visible != nullptr);
+		assert(hittable != nullptr);
 		assert(visible->A == referenceVisible.A);
 		assert(visible->B == referenceVisible.B);
 		assert(visible->VisibleDistance == referenceVisible.VisibleDistance);
@@ -117,6 +118,18 @@ int main()
 		assert(hittable->HitDistance == referenceHittable.HitDistance);
 		assert(hittable->t == referenceHittable.t);
 		assert(invisible->Duration == referenceInvisible.Duration);
+
+		//componentArchive.Detach<Visible>(e0);
+		//hittable = componentArchive.Get<Hittable>(e0);
+		//invisible = componentArchive.Get<Invisible>(e0);
+		//visible = componentArchive.Get<Visible>(e0);
+		//assert(visible == nullptr);
+		//assert(hittable != nullptr);
+		//assert(invisible != nullptr);
+		//assert(hittable->HitCount == referenceHittable.HitCount);
+		//assert(hittable->HitDistance == referenceHittable.HitDistance);
+		//assert(hittable->t == referenceHittable.t);
+		//assert(invisible->Duration == referenceInvisible.Duration);
 
 		// Interation test
 		std::vector<Entity> entities;
@@ -183,12 +196,17 @@ int main()
 			bool condition1 = vRef.B == (count + 0xf0f0f0);
 			bool condition2 = vRef.ClipDistance == 10000.5555f;
 
+			if (!(condition0 && condition1 && condition2))
+			{
+				std::cout << "Failed to validation at " << count << std::endl;
+			}
+
 			assert(condition0);
 			assert(condition1);
 			assert(condition2);
 		}
 		end = std::chrono::steady_clock::now();
-		std::cout << "Validation: " << std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count() << " ns" << std::endl;
+		std::cout << "Validation: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
 		ComponentArchive::DestroyInstance();
 	}
