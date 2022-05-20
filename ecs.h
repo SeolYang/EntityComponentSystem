@@ -101,8 +101,8 @@ namespace sy
 	{
 		ComponentID ID = INVALID_COMPONET_ID;
 		std::string Name;
-		size_t Size;
-		size_t Alignment;
+		size_t Size = 0;
+		size_t Alignment = 1;
 
 		template <typename T>
 		static ComponentInfo Generate()
@@ -229,6 +229,8 @@ namespace sy
 		{
 			size_t ChunkIndex = size_t(-1);
 			size_t AllocationIndexOfEntity = size_t(-1);
+
+			inline bool IsFailedToAllocate() const { return (ChunkIndex == size_t(-1)) || (AllocationIndexOfEntity == size_t(-1)); }
 		};
 
 		struct ComponentAllocationInfo
@@ -261,7 +263,6 @@ namespace sy
 		ChunkList(ChunkList&& rhs) noexcept :
 			chunks(std::move(rhs.chunks)),
 			componentAllocInfos(std::move(rhs.componentAllocInfos)),
-			allocationLUT(std::move(rhs.allocationLUT)),
 			sizeOfData(rhs.sizeOfData)
 		{
 		}
@@ -275,59 +276,43 @@ namespace sy
 		{
 			chunks = std::move(rhs.chunks);
 			componentAllocInfos = std::move(rhs.componentAllocInfos);
-			allocationLUT = std::move(rhs.allocationLUT);
 			sizeOfData = rhs.sizeOfData;
 			return (*this);
 		}
 
 		/** It doesn't call anyof constructor. */
-		void* Create(Entity entity)
+		Allocation Create()
 		{
-			if (!utils::HasKey(allocationLUT, entity))
+			size_t freeChunkIndex = 0;
+			for (; freeChunkIndex < chunks.size(); ++freeChunkIndex)
 			{
-				size_t freeChunkIndex = 0;
-				for (; freeChunkIndex < chunks.size(); ++freeChunkIndex)
+				if (!chunks[freeChunkIndex].IsFull())
 				{
-					if (!chunks[freeChunkIndex].IsFull())
-					{
-						break;
-					}
+					break;
 				}
-
-				bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
-				if (bDoesNotFoundFreeChunk)
-				{
-					chunks.emplace_back(sizeOfData);
-				}
-
-				Chunk& chunk = chunks[freeChunkIndex];
-				size_t allocIndex = chunk.Allocate();
-
-				allocationLUT[entity] = Allocation{
-					.ChunkIndex = freeChunkIndex,
-					.AllocationIndexOfEntity = allocIndex
-				};
-
-				return AddressOf(entity);
 			}
 
-			return nullptr;
+			bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
+			if (bDoesNotFoundFreeChunk)
+			{
+				chunks.emplace_back(sizeOfData);
+			}
+
+			Chunk& chunk = chunks[freeChunkIndex];
+			size_t allocIndex = chunk.Allocate();
+
+			return Allocation{
+				.ChunkIndex = freeChunkIndex,
+				.AllocationIndexOfEntity = allocIndex
+			};
 		}
 
 		/** It doesn't call anyof destructor. */
-		void Destroy(Entity entity)
+		void Destroy(const Allocation allocation)
 		{
-			if (utils::HasKey(allocationLUT, entity))
-			{
-				const auto& allocation = allocationLUT[entity];
-				chunks[allocation.ChunkIndex].Deallocate(allocation.AllocationIndexOfEntity);
-				allocationLUT.erase(entity);
-			}
-		}
-
-		bool HasEntity(const Entity entity) const
-		{
-			return utils::HasKey(allocationLUT, entity);
+			assert(!allocation.IsFailedToAllocate());
+			assert(allocation.ChunkIndex < chunks.size());
+			chunks[allocation.ChunkIndex].Deallocate(allocation.AllocationIndexOfEntity);
 		}
 
 		std::vector<ComponentAllocationInfo> ComponentAllocationInfos() const { return componentAllocInfos; }
@@ -352,22 +337,26 @@ namespace sy
 			return found != componentAllocInfos.cend();
 		}
 
-		void* AddressOf(const Entity entity) const
+		void* AddressOf(const Allocation allocation) const
 		{
-			if (HasEntity(entity))
+			const bool bIsValidChunkIndex = allocation.ChunkIndex < chunks.size();
+			assert(bIsValidChunkIndex);
+
+			if (bIsValidChunkIndex)
 			{
-				const auto& allocation = allocationLUT.find(entity)->second;
 				return chunks[allocation.ChunkIndex].AddressOf(allocation.AllocationIndexOfEntity);
 			}
 
 			return nullptr;
 		}
 
-		void* AddressOf(const Entity entity, const ComponentID componentID) const
+		void* AddressOf(const Allocation allocation, const ComponentID componentID) const
 		{
-			if (Support(componentID) && HasEntity(entity))
+			const bool bIsValidChunkIndex = allocation.ChunkIndex < chunks.size();
+			assert(bIsValidChunkIndex);
+
+			if (Support(componentID))
 			{
-				const auto& allocation = allocationLUT.find(entity)->second;
 				const auto componentAllocInfo = AllocationInfoOfComponent(componentID);
 				void* entityAddress = chunks[allocation.ChunkIndex].AddressOf(allocation.AllocationIndexOfEntity);
 
@@ -378,17 +367,20 @@ namespace sy
 		}
 
 		/** Just memory data copy, it never call any constructor or destructor. */
-		static void MoveEntity(const Entity entity, ChunkList& src, ChunkList& dest)
+		static void MoveData(ChunkList& srcChunkList, const Allocation srcAllocation, ChunkList& destChunkList, const Allocation destAllocation)
 		{
-			bool bValidation = src.HasEntity(entity) && dest.HasEntity(entity);
-			assert(bValidation);
+			bool bIsValid = !srcAllocation.IsFailedToAllocate() && !destAllocation.IsFailedToAllocate();
+			assert(bIsValid);
 
-			if (bValidation)
+			bIsValid = bIsValid && (srcAllocation.ChunkIndex < srcChunkList.chunks.size() && destAllocation.ChunkIndex < destChunkList.chunks.size());
+			assert(bIsValid);
+
+			if (bIsValid)
 			{
-				void* destAddress = dest.AddressOf(entity);
-				void* srcAddress = src.AddressOf(entity);
-				const auto& srcComponentAllocInfos = src.componentAllocInfos;
-				const auto& destComponentAllocInfos = dest.componentAllocInfos;
+				void* srcAddress = srcChunkList.AddressOf(srcAllocation);
+				void* destAddress = destChunkList.AddressOf(destAllocation);
+				const auto& srcComponentAllocInfos = srcChunkList.componentAllocInfos;
+				const auto& destComponentAllocInfos = destChunkList.componentAllocInfos;
 				for (const auto& srcComponentAllocInfo : srcComponentAllocInfos)
 				{
 					for (const auto& destComponentAllocInfo : destComponentAllocInfos)
@@ -400,14 +392,13 @@ namespace sy
 					}
 				}
 
-				src.Destroy(entity);
+				srcChunkList.Destroy(srcAllocation);
 			}
 		}
 
 	private:
 		std::vector<Chunk> chunks;
 		std::vector<ComponentAllocationInfo> componentAllocInfos;
-		std::unordered_map<Entity, Allocation> allocationLUT;
 		size_t sizeOfData;
 
 	};
@@ -537,6 +528,7 @@ namespace sy
 				if (!utils::HasKey(archetypeLUT, entity))
 				{
 					archetypeLUT[entity] = {};
+					allocationLUT[entity] = ChunkList::Allocation();
 				}
 
 				Archetype& archetype = archetypeLUT[entity];
@@ -544,14 +536,15 @@ namespace sy
 				archetype.insert(componentID);
 
 				size_t chunkList = FindOrCreateChunkList(archetype);
-				void* entityAddress = ReferenceChunkList(chunkList).Create(entity);
-				if (entityAddress != nullptr && !oldArchetype.empty())
+				ChunkList::Allocation newAllocation = ReferenceChunkList(chunkList).Create();
+				if (!newAllocation.IsFailedToAllocate() && !oldArchetype.empty())
 				{
 					size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
-					ChunkList::MoveEntity(entity, ReferenceChunkList(oldChunkList), ReferenceChunkList(chunkList));
+					ChunkList::MoveData(ReferenceChunkList(oldChunkList), allocationLUT[entity], ReferenceChunkList(chunkList), newAllocation);
 				}
+				allocationLUT[entity] = newAllocation;
 
-				result = reinterpret_cast<Component*>(ReferenceChunkList(chunkList).AddressOf(entity, componentID));
+				result = reinterpret_cast<Component*>(ReferenceChunkList(chunkList).AddressOf(newAllocation, componentID));
 
 				if (bCallDefaultConstructor)
 				{
@@ -590,21 +583,23 @@ namespace sy
 				archetype.erase(componentID);
 
 				size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
-				void* detachComponentPtr = ReferenceChunkList(oldChunkList).AddressOf(entity, componentID);
+				ChunkList::Allocation oldAllocation = allocationLUT[entity];
+				void* detachComponentPtr = ReferenceChunkList(oldChunkList).AddressOf(oldAllocation, componentID);
 				const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 				dynamicComponentData.Destructor(detachComponentPtr);
 
 				if (!archetype.empty())
 				{
 					size_t newChunkList = FindOrCreateChunkList(archetype);
-					ReferenceChunkList(newChunkList).Create(entity);
-					ChunkList::MoveEntity(entity,
-						ReferenceChunkList(oldChunkList),
-						ReferenceChunkList(newChunkList));
+					ChunkList::Allocation newAllocation = ReferenceChunkList(newChunkList).Create();
+					ChunkList::MoveData(
+						ReferenceChunkList(oldChunkList), oldAllocation,
+						ReferenceChunkList(newChunkList), newAllocation);
 				}
 				else
 				{
-					ReferenceChunkList(oldChunkList).Destroy(entity);
+					ReferenceChunkList(oldChunkList).Destroy(oldAllocation);
+					allocationLUT[entity] = ChunkList::Allocation();
 				}
 			}
 		}
@@ -629,14 +624,16 @@ namespace sy
 				if (!archetype.empty())
 				{
 					size_t chunkList = FindOrCreateChunkList(archetype);
+					ChunkList::Allocation oldAllocation = allocationLUT[entity];
 					for (ComponentID componentID : archetype)
 					{
-						void* detachComponentPtr = ReferenceChunkList(chunkList).AddressOf(entity, componentID);
+						void* detachComponentPtr = ReferenceChunkList(chunkList).AddressOf(oldAllocation, componentID);
 						const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 						dynamicComponentData.Destructor(detachComponentPtr);
 					}
 
-					ReferenceChunkList(chunkList).Destroy(entity);
+					ReferenceChunkList(chunkList).Destroy(oldAllocation);
+					allocationLUT[entity] = ChunkList::Allocation();
 				}
 
 				archetypeLUT.erase(entity);
@@ -693,7 +690,8 @@ namespace sy
 					if (archetype == archetypeChunkList.first)
 					{
 						const ChunkList& chunkList = archetypeChunkList.second;
-						return reinterpret_cast<Component*>(chunkList.AddressOf(entity, componentID));
+						const ChunkList::Allocation allocation = allocationLUT.find(entity)->second;
+						return reinterpret_cast<Component*>(chunkList.AddressOf(allocation, componentID));
 					}
 				}
 			}
@@ -707,6 +705,7 @@ namespace sy
 		static inline std::once_flag instanceDestructionOnceFlag;
 		std::unordered_map<ComponentID, DynamicComponentData> dynamicComponentDataLUT;
 		std::unordered_map<Entity, Archetype> archetypeLUT;
+		std::unordered_map<Entity, ChunkList::Allocation> allocationLUT;
 		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
 
 	};
