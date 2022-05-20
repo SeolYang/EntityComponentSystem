@@ -143,23 +143,25 @@ namespace sy
 
 	class Chunk
 	{
+		using PoolType = std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>>;
 	public:
 		Chunk(const size_t sizeOfData, const size_t chunkSize = DEFAULT_CHUNK_SIZE, const size_t chunkAlignment = DEFAULT_CHUNK_ALIGNMENT) :
 			mem(_aligned_malloc(chunkSize, chunkAlignment)),
 			sizeOfData(sizeOfData),
+			allocationPool({}),
 			maxNumOfAllocations(DEFAULT_CHUNK_SIZE / sizeOfData),
 			sizeOfChunk(chunkSize),
 			alignmentOfChunk(chunkAlignment)
 		{
 			for (size_t allocationIndex = 0; allocationIndex < MaxNumOfAllocations(); ++allocationIndex)
 			{
-				allocationPool.push_back(allocationIndex);
+				allocationPool.push(allocationIndex);
 			}
 		}
 
 		Chunk(Chunk&& rhs) noexcept :
 			mem(std::exchange(rhs.mem, nullptr)),
-			allocationPool(std::move(allocationPool)),
+			allocationPool(std::move(rhs.allocationPool)),
 			sizeOfData(std::exchange(rhs.sizeOfData, 0)),
 			maxNumOfAllocations(std::exchange(rhs.maxNumOfAllocations, 0)),
 			sizeOfChunk(std::exchange(rhs.sizeOfChunk, 0)),
@@ -176,26 +178,16 @@ namespace sy
 			}
 		}
 
-		Chunk& operator=(Chunk&& rhs) noexcept
-		{
-			mem = std::exchange(rhs.mem, nullptr);
-			allocationPool = std::move(allocationPool);
-			sizeOfData = std::exchange(rhs.sizeOfData, 0);
-			maxNumOfAllocations = std::exchange(rhs.maxNumOfAllocations, 0);
-			sizeOfChunk = std::exchange(rhs.sizeOfChunk, 0);
-			alignmentOfChunk = std::exchange(rhs.alignmentOfChunk, 0);
-			return (*this);
-		}
-
 		Chunk(const Chunk&) = delete;
 		Chunk& operator=(const Chunk&) = delete;
+		Chunk& operator=(Chunk&& rhs) noexcept = delete;
 
 		/** Return index of allocation */
 		size_t Allocate()
 		{
 			assert(!IsFull());
-			size_t alloc = allocationPool.front();
-			allocationPool.pop_front();
+			size_t alloc = allocationPool.top();
+			allocationPool.pop();
 			return alloc;
 		}
 
@@ -203,8 +195,9 @@ namespace sy
 		void Deallocate(size_t at)
 		{
 			assert(at < MaxNumOfAllocations());
-			assert((std::find(allocationPool.cbegin(), allocationPool.cend(), at) == allocationPool.cend()));
-			allocationPool.push_back(at);
+			//assert((std::find(allocationPool.cbegin(), allocationPool.cend(), at) == allocationPool.cend()));
+			//allocationPool.push_back(at);
+			allocationPool.push(at);
 		}
 
 		void* AddressOf(size_t at) const
@@ -221,7 +214,7 @@ namespace sy
 
 	private:
 		void* mem;
-		std::deque<size_t> allocationPool;
+		PoolType allocationPool;
 		size_t sizeOfData;
 		size_t maxNumOfAllocations;
 		size_t sizeOfChunk;
