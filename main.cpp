@@ -18,19 +18,18 @@ struct Visible : Component
 	Visible()
 	{
 		++Alloc;
-		//std::cout << "Visible Constructor\t" << this << std::endl;
 	}
 
 	virtual ~Visible()
 	{
 		++Dealloc;
-		//std::cout << "Visible Destructor\t" << this << std::endl;
 	}
 
 	double ClipDistance = 2022.0519;
 	float VisibleDistance = 1234.4321f;
 	uint64_t A = 400;
 	uint64_t B = 0xffffffff;
+	std::vector<std::tuple<int, int>> compund;
 
 	inline static size_t Alloc = 0;
 	inline static size_t Dealloc = 0;
@@ -38,14 +37,40 @@ struct Visible : Component
 
 struct Hittable : Component
 {
+	Hittable()
+	{
+		++Alloc;
+	}
+
+	virtual ~Hittable()
+	{
+		++Dealloc;
+	}
+
 	float HitDistance = 1000.0f;
-	uint32_t HitCount = 3;
+	uint64_t HitCount = 3;
 	float t = 3.141592f;
+
+	inline static size_t Alloc = 0;
+	inline static size_t Dealloc = 0;
 };
 
 struct Invisible : Component
 {
+	Invisible()
+	{
+		++Alloc;
+	}
+
+	virtual ~Invisible()
+	{
+		++Dealloc;
+	}
+
 	uint64_t Duration = 186;
+
+	inline static size_t Alloc = 0;
+	inline static size_t Dealloc = 0;
 };
 
 DeclareComponent(Visible);
@@ -64,6 +89,11 @@ int main()
 	constexpr ComponentID visibeID = QueryComponentID<Visible>();
 	constexpr ComponentID hittableID = QueryComponentID<Hittable>();
 	constexpr ComponentID invisibleID = QueryComponentID<Invisible>();
+
+	size_t visibleAllocCount = 0;
+	size_t hittableAllocCount = 0;
+	size_t invisibleAllocCount = 0;
+
 	std::this_thread::sleep_for(std::chrono::seconds(2));
 	{
 		auto& componentArchive = ComponentArchive::Instance();
@@ -73,6 +103,7 @@ int main()
 		assert(visible != nullptr);
 		assert(visible == componentArchive.Get<Visible>(e0));
 		assert(componentArchive.Attach<Visible>(e0) == nullptr);
+		++visibleAllocCount;
 
 		// 'visible' pointer will be expired at here
 		Hittable* hittable = componentArchive.Attach<Hittable>(e0);
@@ -80,10 +111,13 @@ int main()
 		assert(hittable == componentArchive.Get<Hittable>(e0));
 		assert(componentArchive.Attach<Visible>(e0) == nullptr);
 		assert(componentArchive.Attach<Hittable>(e0) == nullptr);
+		++hittableAllocCount;
 
 		// Check validation of component value #1
 		Visible referenceVisible;
 		Hittable referenceHittable;
+		++visibleAllocCount;
+		++hittableAllocCount;
 		visible = componentArchive.Get<Visible>(e0);
 		assert(visible != nullptr);
 		assert(visible->A == referenceVisible.A);
@@ -101,6 +135,7 @@ int main()
 
 		// 'visible' pointer and 'hittable' pointer will be expired at here 
 		Invisible* invisible = componentArchive.Attach<Invisible>(e0);
+		++invisibleAllocCount;
 		assert(invisible != nullptr);
 		assert(invisible == componentArchive.Get<Invisible>(e0));
 		assert(componentArchive.Attach<Visible>(e0) == nullptr);
@@ -109,6 +144,7 @@ int main()
 
 		// Check validation of component value #2
 		Invisible referenceInvisible;
+		++invisibleAllocCount;
 		visible = componentArchive.Get<Visible>(e0);
 		hittable = componentArchive.Get<Hittable>(e0);
 		assert(visible != nullptr);
@@ -134,88 +170,231 @@ int main()
 		assert(hittable->t == referenceHittable.t);
 		assert(invisible->Duration == referenceInvisible.Duration);
 
-		// Interation test
+		referenceHittable = Hittable();
+		referenceInvisible = Invisible();
+		referenceVisible = Visible();
+		++hittableAllocCount;
+		++invisibleAllocCount;
+		++visibleAllocCount;
+
 		std::vector<Entity> entities;
 		std::random_device rd;
 		std::mt19937 gen(rd());
 		std::uniform_int_distribution dist(0, 99);
 
+		// Random Generation
+
 		auto begin = std::chrono::steady_clock::now();
 		for (size_t count = 0; count < TEST_COUNT; ++count)
 		{
+			Hittable* hittable = nullptr;
+			Visible* visible = nullptr;
+			Invisible* invisible = nullptr;
 			Entity newEntity = GenerateEntity();
 			entities.emplace_back(newEntity);
 			auto randomNumber = dist(gen);
-			switch (randomNumber % 4)
+			switch (randomNumber % 6)
 			{
 			default:
-				break;
+				visible = componentArchive.Attach<Visible>(newEntity);
+				visible->A = count + 0xffffff;
+				visible->B = count + 0xf0f0f0;
+				visible->ClipDistance = 10000.5555f;
+				visibleAllocCount += (visible != nullptr ? 1 : 0);
 			case 2:
-				componentArchive.Attach<Hittable>(newEntity);
-				break;
-
 			case 3:
-				componentArchive.Attach<Invisible>(newEntity);
+				hittable = componentArchive.Attach<Hittable>(newEntity);
+				if (hittable != nullptr)
+				{
+					++hittableAllocCount;
+					hittable->HitCount = ~static_cast<uint64_t>(newEntity);
+				}
 				break;
-			}
 
-			Visible* visiblePtr = componentArchive.Attach<Visible>(newEntity);
-			visiblePtr->A = count + 0xffffff;
-			visiblePtr->B = count + 0xf0f0f0;
-			visiblePtr->ClipDistance = 10000.5555f;
-
-			randomNumber = dist(gen);
-			switch (randomNumber % 2)
-			{
-			default:
-			case 0:
-				componentArchive.Attach<Invisible>(newEntity);
-				break;
-			case 1:
-				componentArchive.Attach<Hittable>(newEntity);
+			case 4:
+				invisible = componentArchive.Attach<Invisible>(newEntity);
+				invisibleAllocCount += (invisible != nullptr ? 1 : 0);
 				break;
 			}
 
 			randomNumber = dist(gen);
 			switch (randomNumber % 8)
 			{
-			default:
+			case 0:
+			case 1:
+				invisible = componentArchive.Attach<Invisible>(newEntity);
+				invisibleAllocCount += (invisible != nullptr ? 1 : 0);
+				break;
+			case 2:
+				hittable = componentArchive.Attach<Hittable>(newEntity);
+				if (hittable != nullptr)
+				{
+					++hittableAllocCount;
+					hittable->HitCount = ~static_cast<uint64_t>(newEntity);
+				}
+				break;
+			}
+
+			randomNumber = dist(gen);
+			switch (randomNumber % 16)
+			{
 			case 4:
-				componentArchive.Attach<Invisible>(newEntity);
+				invisible = componentArchive.Attach<Invisible>(newEntity);
+				invisibleAllocCount += (invisible != nullptr ? 1 : 0);
 				break;
 			case 6:
-				componentArchive.Attach<Hittable>(newEntity);
+				hittable = componentArchive.Attach<Hittable>(newEntity);
+				if (hittable != nullptr)
+				{
+					++hittableAllocCount;
+					hittable->HitCount = ~static_cast<uint64_t>(newEntity);
+				}
 				break;
 			}
 		}
 		auto end = std::chrono::steady_clock::now();
-		std::cout << "Generation: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
+		std::cout << "Random generation takes " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
+		/******************************************************************/
+		/* Linear Access & Data Validation */
 		begin = std::chrono::steady_clock::now();
 		for (size_t count = 0; count < TEST_COUNT; ++count)
 		{
-			Visible& vRef = (*componentArchive.Get<Visible>(entities[count]));
-			bool condition0 = vRef.A == (count + 0xffffff);
-			bool condition1 = vRef.B == (count + 0xf0f0f0);
-			bool condition2 = vRef.ClipDistance == 10000.5555f;
+			const size_t idx = count;
+			const Entity entity = entities[idx];
 
-			if (!(condition0 && condition1 && condition2))
+			Visible* visible = componentArchive.Get<Visible>(entity);
+			if (visible != nullptr)
 			{
-				std::cout << "Failed to validation at " << count << std::endl;
+				bool condition0 = visible->A == (idx + 0xffffff);
+				bool condition1 = visible->B == (idx + 0xf0f0f0);
+				bool condition2 = visible->ClipDistance == 10000.5555f;
+				bool condition3 = visible->VisibleDistance == referenceVisible.VisibleDistance;
+
+				if (!(condition0 && condition1 && condition2))
+				{
+					std::cout << "Failed to checks validation of Visible at " << idx << std::endl;
+				}
+
+				assert(condition0);
+				assert(condition1);
+				assert(condition2);
 			}
 
-			assert(condition0);
-			assert(condition1);
-			assert(condition2);
+			Hittable* hittable = (componentArchive.Get<Hittable>(entity));
+			if (hittable != nullptr)
+			{
+				bool condition0 = hittable->HitCount == ~static_cast<uint64_t>(entity);
+				bool condition1 = hittable->HitDistance == referenceHittable.HitDistance;
+				bool condition2 = hittable->t == referenceHittable.t;
+
+				if (!(condition0 && condition1 && condition2))
+				{
+					std::cout << "Failed to checks validation of Hittable at " << idx << std::endl;
+				}
+
+				assert(condition0);
+				assert(condition1);
+				assert(condition2);
+			}
+
+			Invisible* invisible = (componentArchive.Get<Invisible>(entity));
+			if (invisible != nullptr)
+			{
+				bool condition0 = invisible->Duration == referenceInvisible.Duration;
+				if (!condition0)
+				{
+					std::cout << "Failed to checks validation of Invisible at " << idx << std::endl;
+				}
+
+				assert(condition0);
+			}
 		}
 		end = std::chrono::steady_clock::now();
-		std::cout << "Validation: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
+		std::cout << "Linear Access & Validation takes " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
+
+		/******************************************************************/
+		/* Random Access & Data Validation */
+		begin = std::chrono::steady_clock::now();
+		std::uniform_int_distribution<size_t> accessDist(0, entities.size()-1);
+		for (size_t count = 0; count < TEST_COUNT; ++count)
+		{
+			const size_t idx = accessDist(gen);
+			const Entity entity = entities[idx];
+
+			Visible* visible = componentArchive.Get<Visible>(entity);
+			if (visible != nullptr)
+			{
+				bool condition0 = visible->A == (idx + 0xffffff);
+				bool condition1 = visible->B == (idx + 0xf0f0f0);
+				bool condition2 = visible->ClipDistance == 10000.5555f;
+				bool condition3 = visible->VisibleDistance == referenceVisible.VisibleDistance;
+
+				if (!(condition0 && condition1 && condition2))
+				{
+					std::cout << "Failed to checks validation of Visible at " << idx << std::endl;
+				}
+
+				assert(condition0);
+				assert(condition1);
+				assert(condition2);
+			}
+
+			Hittable* hittable = (componentArchive.Get<Hittable>(entity));
+			if (hittable != nullptr)
+			{
+				bool condition0 = hittable->HitCount == ~static_cast<uint64_t>(entity);
+				bool condition1 = hittable->HitDistance == referenceHittable.HitDistance;
+				bool condition2 = hittable->t == referenceHittable.t;
+
+				if (!(condition0 && condition1 && condition2))
+				{
+					std::cout << "Failed to checks validation of Hittable at " << idx << std::endl;
+				}
+
+				assert(condition0);
+				assert(condition1);
+				assert(condition2);
+			}
+
+			Invisible* invisible = (componentArchive.Get<Invisible>(entity));
+			if (invisible != nullptr)
+			{
+				bool condition0 = invisible->Duration == referenceInvisible.Duration;
+				if (!condition0)
+				{
+					std::cout << "Failed to checks validation of Invisible at " << idx << std::endl;
+				}
+
+				assert(condition0);
+			}
+		}
+		end = std::chrono::steady_clock::now();
+		std::cout << "Random Access & Validation takes " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
 		ComponentArchive::DestroyInstance();
+
 	}
 
-	std::cout << "Num of Alloc(Visible Component) : " << Visible::Alloc << std::endl;
+	std::cout << "Num of actual generation (Visible Component) : " << visibleAllocCount << std::endl;
+	std::cout << "Num of call constructor of (Visible Component) : " << Visible::Alloc << " (times)" << std::endl;
+	std::cout << "Num of call destructor of (Visible Component) : " << Visible::Dealloc << " (times)" << std::endl;
+	assert(visibleAllocCount == Visible::Alloc);
 	assert(Visible::Alloc == Visible::Dealloc);
+
+	std::cout << "Num of actual generation (Hittable Component) : " << hittableAllocCount << std::endl;
+	std::cout << "Num of call constructor of (Hittable Component) : " << Hittable::Alloc << " (times)" << std::endl;
+	std::cout << "Num of call destructor of (Hittable Component) : " << Hittable::Dealloc << " (times)" << std::endl;
+	assert(hittableAllocCount == Hittable::Alloc);
+	assert(Hittable::Alloc == Hittable::Dealloc);
+
+	std::cout << "Num of actual generation (Invisible Component) : " << invisibleAllocCount << std::endl;
+	std::cout << "Num of call constructor of (Invisible Component) : " << Invisible::Alloc << " (times)" << std::endl;
+	std::cout << "Num of call destructor of (Invisible Component) : " << Invisible::Dealloc << " (times)" << std::endl;
+	assert(invisibleAllocCount == Invisible::Alloc);
+	assert(Invisible::Alloc == Invisible::Dealloc);
+
+	/** Check Memory Leaks */
 	_CrtDumpMemoryLeaks();
 	return 0;
 }
