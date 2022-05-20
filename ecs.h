@@ -117,7 +117,7 @@ namespace sy
 		}
 	};
 
-	// Bigger chunk size = lower level of indirection
+	// https://forum.unity.com/threads/is-it-guaranteed-that-random-access-within-a-16kb-chunk-will-not-cause-cache-miss.709940/
 	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
 	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
 	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
