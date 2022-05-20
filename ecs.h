@@ -403,7 +403,7 @@ namespace sy
 
 	};
 
-	using Archetype = std::set<ComponentID>;
+	using ArchetypeType = std::set<ComponentID>;
 	class ComponentArchive
 	{
 	public:
@@ -412,6 +412,12 @@ namespace sy
 			ComponentInfo Info;
 			std::function<void(void*)> DefaultConstructor;
 			std::function<void(void*)> Destructor;
+		};
+
+		struct ArchetypeData
+		{
+			ArchetypeType Archetype;
+			ChunkList::Allocation Allocation;
 		};
 
 	public:
@@ -469,7 +475,7 @@ namespace sy
 			if (foundArchetypeItr != archetypeLUT.end())
 			{
 				const auto& foundArchetype = (foundArchetypeItr->second);
-				return utils::HasKey(foundArchetype, componentID);
+				return utils::HasKey(foundArchetype.Archetype, componentID);
 			}
 
 			return false;
@@ -481,7 +487,7 @@ namespace sy
 			return Contains(entity, QueryComponentID<T>());
 		}
 
-		bool HasArchetypeChunkList(const Archetype& archetype) const
+		bool HasArchetypeChunkList(const ArchetypeType& archetype) const
 		{
 			for (const auto& chunkListPair : chunkListLUT)
 			{
@@ -500,8 +506,8 @@ namespace sy
 			auto rhsItr = archetypeLUT.find(rhs);
 			if (lhsItr != archetypeLUT.end() && rhsItr != archetypeLUT.end())
 			{
-				const auto& lhsArchetype = lhsItr->second;
-				const auto& rhsArchetype = rhsItr->second;
+				const auto& lhsArchetype= lhsItr->second.Archetype;
+				const auto& rhsArchetype = rhsItr->second.Archetype;
 				return lhsArchetype == rhsArchetype;
 			}
 
@@ -509,14 +515,14 @@ namespace sy
 			return lhsItr == rhsItr;
 		}
 
-		Archetype QueryArchetype(const Entity entity) const
+		ArchetypeType QueryArchetype(const Entity entity) const
 		{
 			if (utils::HasKey(archetypeLUT, entity))
 			{
-				return archetypeLUT.find(entity)->second;
+				return archetypeLUT.find(entity)->second.Archetype;
 			}
 
-			return Archetype();
+			return ArchetypeType();
 		}
 
 		/** Return nullptr, if component is already exist or failed to attach. */
@@ -528,11 +534,11 @@ namespace sy
 				if (!utils::HasKey(archetypeLUT, entity))
 				{
 					archetypeLUT[entity] = {};
-					allocationLUT[entity] = ChunkList::Allocation();
 				}
 
-				Archetype& archetype = archetypeLUT[entity];
-				Archetype oldArchetype = archetype;
+				ArchetypeData& archetypeData = archetypeLUT[entity];
+				ArchetypeType& archetype = archetypeData.Archetype;
+				ArchetypeType oldArchetype = archetype;
 				archetype.insert(componentID);
 
 				size_t chunkList = FindOrCreateChunkList(archetype);
@@ -540,9 +546,9 @@ namespace sy
 				if (!newAllocation.IsFailedToAllocate() && !oldArchetype.empty())
 				{
 					size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
-					ChunkList::MoveData(ReferenceChunkList(oldChunkList), allocationLUT[entity], ReferenceChunkList(chunkList), newAllocation);
+					ChunkList::MoveData(ReferenceChunkList(oldChunkList), archetypeLUT[entity].Allocation, ReferenceChunkList(chunkList), newAllocation);
 				}
-				allocationLUT[entity] = newAllocation;
+				archetypeData.Allocation = newAllocation;
 
 				result = reinterpret_cast<Component*>(ReferenceChunkList(chunkList).AddressOf(newAllocation, componentID));
 
@@ -578,12 +584,13 @@ namespace sy
 		{
 			if (Contains(entity, componentID))
 			{
-				Archetype& archetype = archetypeLUT[entity];
-				Archetype oldArchetype = archetype;
+				ArchetypeData& archetypeData = archetypeLUT[entity];
+				ArchetypeType& archetype = archetypeData.Archetype;
+				ArchetypeType oldArchetype = archetype;
 				archetype.erase(componentID);
 
 				size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
-				ChunkList::Allocation oldAllocation = allocationLUT[entity];
+				ChunkList::Allocation oldAllocation = archetypeData.Allocation;
 				void* detachComponentPtr = ReferenceChunkList(oldChunkList).AddressOf(oldAllocation, componentID);
 				const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 				dynamicComponentData.Destructor(detachComponentPtr);
@@ -599,7 +606,7 @@ namespace sy
 				else
 				{
 					ReferenceChunkList(oldChunkList).Destroy(oldAllocation);
-					allocationLUT[entity] = ChunkList::Allocation();
+					archetypeData.Allocation = ChunkList::Allocation();
 				}
 			}
 		}
@@ -620,11 +627,12 @@ namespace sy
 		{
 			if (utils::HasKey(archetypeLUT, entity))
 			{
-				const auto& archetype = archetypeLUT[entity];
+				const auto& archetypeData = archetypeLUT[entity];
+				const auto& archetype = archetypeData.Archetype;
 				if (!archetype.empty())
 				{
 					size_t chunkList = FindOrCreateChunkList(archetype);
-					ChunkList::Allocation oldAllocation = allocationLUT[entity];
+					ChunkList::Allocation oldAllocation = archetypeData.Allocation;
 					for (ComponentID componentID : archetype)
 					{
 						void* detachComponentPtr = ReferenceChunkList(chunkList).AddressOf(oldAllocation, componentID);
@@ -633,7 +641,6 @@ namespace sy
 					}
 
 					ReferenceChunkList(chunkList).Destroy(oldAllocation);
-					allocationLUT[entity] = ChunkList::Allocation();
 				}
 
 				archetypeLUT.erase(entity);
@@ -643,7 +650,7 @@ namespace sy
 	private:
 		ComponentArchive() = default;
 
-		size_t FindOrCreateChunkList(const Archetype& archetype)
+		size_t FindOrCreateChunkList(const ArchetypeType& archetype)
 		{
 			size_t idx = 0;
 			for (; idx < chunkListLUT.size(); ++idx)
@@ -667,7 +674,7 @@ namespace sy
 			return chunkListLUT[idx].second;
 		}
 
-		std::vector<ComponentInfo> RetrieveComponentInfosFromArchetype(const Archetype& archetype) const
+		std::vector<ComponentInfo> RetrieveComponentInfosFromArchetype(const ArchetypeType& archetype) const
 		{
 			std::vector<ComponentInfo> res{ };
 			res.reserve(archetype.size());
@@ -684,13 +691,14 @@ namespace sy
 		{
 			if (Contains(entity, componentID))
 			{
-				const auto& archetype = archetypeLUT.find(entity)->second;
+				const auto& archetypeData = archetypeLUT.find(entity)->second;
+				const auto& archetype = archetypeData.Archetype;
+				const ChunkList::Allocation& allocation = archetypeData.Allocation;
 				for (const auto& archetypeChunkList : chunkListLUT)
 				{
 					if (archetype == archetypeChunkList.first)
 					{
 						const ChunkList& chunkList = archetypeChunkList.second;
-						const ChunkList::Allocation allocation = allocationLUT.find(entity)->second;
 						return reinterpret_cast<Component*>(chunkList.AddressOf(allocation, componentID));
 					}
 				}
@@ -704,22 +712,21 @@ namespace sy
 		static inline std::once_flag instanceCreationOnceFlag;
 		static inline std::once_flag instanceDestructionOnceFlag;
 		std::unordered_map<ComponentID, DynamicComponentData> dynamicComponentDataLUT;
-		std::unordered_map<Entity, Archetype> archetypeLUT;
-		std::unordered_map<Entity, ChunkList::Allocation> allocationLUT;
-		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
+		std::unordered_map<Entity, ArchetypeData> archetypeLUT;
+		std::vector<std::pair<ArchetypeType, ChunkList>> chunkListLUT;
 
 	};
 
 	namespace Filter
 	{
-		static std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		static std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities, const ArchetypeType& filter)
 		{
 			std::vector<Entity> result;
 			result.reserve((entities.size() / 2) + 2); /** Conservative reserve */
 
 			for (const Entity entity : entities)
 			{
-				const Archetype& entityArchetype = archive.QueryArchetype(entity);
+				const ArchetypeType& entityArchetype = archive.QueryArchetype(entity);
 				if (!entityArchetype.empty() &&
 					std::includes(
 						entityArchetype.cbegin(), entityArchetype.cend(),
@@ -733,7 +740,7 @@ namespace sy
 			return result;
 		}
 
-		static std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		static std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities, const ArchetypeType& filter)
 		{
 			assert(!filter.empty() && "Filter Archetype must contains at least one element.");
 			std::vector<Entity> result;
@@ -741,10 +748,10 @@ namespace sy
 
 			for (const Entity entity : entities)
 			{
-				const Archetype& entityArchetype = archive.QueryArchetype(entity);
+				const ArchetypeType& entityArchetype = archive.QueryArchetype(entity);
 				if (!entityArchetype.empty())
 				{
-					Archetype intersection = {};
+					ArchetypeType intersection = {};
 					std::set_intersection(
 						filter.begin(), filter.end(),
 						entityArchetype.begin(), entityArchetype.end(),
@@ -761,7 +768,7 @@ namespace sy
 			return result;
 		}
 
-		static std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		static std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities, const ArchetypeType& filter)
 		{
 			assert(!filter.empty() && "Filter Archetype must contains at least one element.");
 			std::vector<Entity> result;
@@ -769,10 +776,10 @@ namespace sy
 
 			for (const Entity entity : entities)
 			{
-				const Archetype& entityArchetype = archive.QueryArchetype(entity);
+				const ArchetypeType& entityArchetype = archive.QueryArchetype(entity);
 				if (!entityArchetype.empty())
 				{
-					Archetype intersection = {};
+					ArchetypeType intersection = {};
 					std::set_intersection(
 						filter.begin(), filter.end(),
 						entityArchetype.begin(), entityArchetype.end(),
@@ -793,7 +800,7 @@ namespace sy
 		/** Entities which has all of given component types. */
 		std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities)
 		{
-			const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+			const ArchetypeType filterArchetype = { QueryComponentID<Ts>()... };
 			return All(archive, entities, filterArchetype);
 		}
 
@@ -801,7 +808,7 @@ namespace sy
 		/** Entities which has any of given component types. */
 		std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities)
 		{
-			const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+			const ArchetypeType filterArchetype = { QueryComponentID<Ts>()... };
 			return Any(archive, entities, filterArchetype);
 		}
 
@@ -809,7 +816,7 @@ namespace sy
 		/** Entities which has none of given component types. */
 		std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities)
 		{
-			const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+			const ArchetypeType filterArchetype = { QueryComponentID<Ts>()... };
 			return None(archive, entities, filterArchetype);
 		}
 	}
