@@ -372,10 +372,35 @@ int main()
 		end = std::chrono::steady_clock::now();
 		std::cout << "Random Access & Validation takes " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
-		ComponentArchive::DestroyInstance();
+		std::cout << std::endl << std::endl;
+		auto filteredVisible = FilterAll<Visible>(componentArchive, entities);
+		std::cout << "Num of filtered Visible : " << filteredVisible.size() << std::endl;
+		auto filteredHittable = FilterAll<Hittable>(componentArchive, entities);
+		std::cout << "Num of filtered Hittable : " << filteredHittable.size() << std::endl;
+		auto filteredInvisible = FilterAll<Invisible>(componentArchive, entities);
+		std::cout << "Num of filtered Invisible : " << filteredInvisible.size() << std::endl;
 
+		/** Attach Order Invariant */
+		auto filteredVisibleHittable = FilterAll<Visible, Hittable>(componentArchive, entities);
+		auto filteredHittableVisible = FilterAll<Hittable, Visible>(componentArchive, entities);
+		std::cout << "Num of filtered Visible-Hittable : " << filteredVisibleHittable.size() << std::endl;
+		std::cout << "Num of filtered Hittable-Visible : " << filteredHittableVisible.size() << std::endl;
+		std::cout << "Attach Order Invariant : " << (filteredHittableVisible.size() == filteredVisibleHittable.size()) << std::endl;
+		assert(filteredHittableVisible.size() == filteredVisibleHittable.size());
+
+		auto filteredVisibleInvisible = FilterAll<Visible, Invisible>(componentArchive, entities);
+		std::cout << "Num of filtered Visible-Invisible : " << filteredVisibleHittable.size() << std::endl;
+
+		auto filteredHittableInvisible = FilterAll<Hittable, Invisible>(componentArchive, entities);
+		std::cout << "Num of filtered Hittable-Invisible : " << filteredVisibleHittable.size() << std::endl;
+
+		auto filteredVisInvHit = FilterAll<Hittable, Visible, Invisible>(componentArchive, entities);
+		std::cout << "Num of filtered Hittable-Visible-Invisible : " << filteredVisInvHit.size() << std::endl;
+
+		ComponentArchive::DestroyInstance();
 	}
 
+	std::cout << std::endl << std::endl;
 	std::cout << "Num of actual generation (Visible Component) : " << visibleAllocCount << std::endl;
 	std::cout << "Num of call constructor of (Visible Component) : " << Visible::Alloc << " (times)" << std::endl;
 	std::cout << "Num of call destructor of (Visible Component) : " << Visible::Dealloc << " (times)" << std::endl;

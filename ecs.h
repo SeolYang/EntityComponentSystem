@@ -420,11 +420,10 @@ namespace sy
 
 	};
 
+	using Archetype = std::set<ComponentID>;
 	class ComponentArchive
 	{
 	public:
-		using Archetype = std::set<ComponentID>;
-
 		struct DynamicComponentData
 		{
 			ComponentInfo Info;
@@ -719,6 +718,33 @@ namespace sy
 		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
 
 	};
+
+	std::vector<Entity> FilterAll(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filterArchetype)
+	{
+		std::vector<Entity> result;
+		result.reserve(entities.size());
+
+		for (const Entity entity : entities)
+		{
+			const Archetype& entityArchetype = archive.QueryArchetype(entity);
+			if (!entityArchetype.empty() && 
+				std::includes(
+					entityArchetype.cbegin(), entityArchetype.cend(),
+					filterArchetype.cbegin(), filterArchetype.cend()))
+			{
+				result.push_back(entity);
+			}
+		}
+
+		return result;
+	}
+
+	template <ComponentType... Ts>
+	std::vector<Entity> FilterAll(const ComponentArchive& archive, const std::vector<Entity>& entities)
+	{
+		const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+		return FilterAll(archive, entities, filterArchetype);
+	}
 }
 
 #define COMPONENT_TYPE_HASH(x) sy::utils::ELFHash(#x)
