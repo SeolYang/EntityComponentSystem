@@ -719,32 +719,110 @@ namespace sy
 
 	};
 
-	std::vector<Entity> FilterAll(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filterArchetype)
+	namespace Filter
 	{
-		std::vector<Entity> result;
-		result.reserve(entities.size());
-
-		for (const Entity entity : entities)
+		std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
 		{
-			const Archetype& entityArchetype = archive.QueryArchetype(entity);
-			if (!entityArchetype.empty() && 
-				std::includes(
-					entityArchetype.cbegin(), entityArchetype.cend(),
-					filterArchetype.cbegin(), filterArchetype.cend()))
+			std::vector<Entity> result;
+			result.reserve((entities.size() / 2) + 2); /** Conservative reserve */
+
+			for (const Entity entity : entities)
 			{
-				result.push_back(entity);
+				const Archetype& entityArchetype = archive.QueryArchetype(entity);
+				if (!entityArchetype.empty() &&
+					std::includes(
+						entityArchetype.cbegin(), entityArchetype.cend(),
+						filter.cbegin(), filter.cend()))
+				{
+					result.push_back(entity);
+				}
 			}
+
+			result.shrink_to_fit();
+			return result;
 		}
 
-		return result;
+		std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		{
+			assert(!filter.empty() && "Filter Archetype must contains at least one element.");
+			std::vector<Entity> result;
+			result.reserve((entities.size() / 2) + 2); /** Conservative reserve */
+
+			for (const Entity entity : entities)
+			{
+				const Archetype& entityArchetype = archive.QueryArchetype(entity);
+				if (!entityArchetype.empty())
+				{
+					Archetype intersection = {};
+					std::set_intersection(
+						filter.begin(), filter.end(),
+						entityArchetype.begin(), entityArchetype.end(),
+						std::inserter(intersection, intersection.end()));
+
+					if (!intersection.empty())
+					{
+						result.push_back(entity);
+					}
+				}
+			}
+
+			result.shrink_to_fit();
+			return result;
+		}
+
+		std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		{
+			assert(!filter.empty() && "Filter Archetype must contains at least one element.");
+			std::vector<Entity> result;
+			result.reserve((entities.size() / 2) + 2); /** Conservative reserve */
+
+			for (const Entity entity : entities)
+			{
+				const Archetype& entityArchetype = archive.QueryArchetype(entity);
+				if (!entityArchetype.empty())
+				{
+					Archetype intersection = {};
+					std::set_intersection(
+						filter.begin(), filter.end(),
+						entityArchetype.begin(), entityArchetype.end(),
+						std::inserter(intersection, intersection.end()));
+
+					if (intersection.empty())
+					{
+						result.push_back(entity);
+					}
+				}
+			}
+
+			result.shrink_to_fit();
+			return result;
+		}
+
+		template <ComponentType... Ts>
+		/** Entities which has all of given component types. */
+		std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities)
+		{
+			const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+			return All(archive, entities, filterArchetype);
+		}
+
+		template <ComponentType... Ts>
+		/** Entities which has any of given component types. */
+		std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities)
+		{
+			const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+			return Any(archive, entities, filterArchetype);
+		}
+
+		template <ComponentType... Ts>
+		/** Entities which has none of given component types. */
+		std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities)
+		{
+			const Archetype filterArchetype = { QueryComponentID<Ts>()... };
+			return None(archive, entities, filterArchetype);
+		}
 	}
 
-	template <ComponentType... Ts>
-	std::vector<Entity> FilterAll(const ComponentArchive& archive, const std::vector<Entity>& entities)
-	{
-		const Archetype filterArchetype = { QueryComponentID<Ts>()... };
-		return FilterAll(archive, entities, filterArchetype);
-	}
 }
 
 #define COMPONENT_TYPE_HASH(x) sy::utils::ELFHash(#x)

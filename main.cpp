@@ -373,29 +373,36 @@ int main()
 		std::cout << "Random Access & Validation takes " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
 		std::cout << std::endl << std::endl;
-		auto filteredVisible = FilterAll<Visible>(componentArchive, entities);
+		auto filteredVisible = Filter::All<Visible>(componentArchive, entities);
 		std::cout << "Num of filtered Visible : " << filteredVisible.size() << std::endl;
-		auto filteredHittable = FilterAll<Hittable>(componentArchive, entities);
+		auto filteredHittable = Filter::All<Hittable>(componentArchive, entities);
 		std::cout << "Num of filtered Hittable : " << filteredHittable.size() << std::endl;
-		auto filteredInvisible = FilterAll<Invisible>(componentArchive, entities);
+		auto filteredInvisible = Filter::All<Invisible>(componentArchive, entities);
 		std::cout << "Num of filtered Invisible : " << filteredInvisible.size() << std::endl;
 
 		/** Attach Order Invariant */
-		auto filteredVisibleHittable = FilterAll<Visible, Hittable>(componentArchive, entities);
-		auto filteredHittableVisible = FilterAll<Hittable, Visible>(componentArchive, entities);
+		auto filteredVisibleHittable = Filter::All<Visible, Hittable>(componentArchive, entities);
+		auto filteredHittableVisible = Filter::All<Hittable, Visible>(componentArchive, entities);
 		std::cout << "Num of filtered Visible-Hittable : " << filteredVisibleHittable.size() << std::endl;
 		std::cout << "Num of filtered Hittable-Visible : " << filteredHittableVisible.size() << std::endl;
 		std::cout << "Attach Order Invariant : " << (filteredHittableVisible.size() == filteredVisibleHittable.size()) << std::endl;
 		assert(filteredHittableVisible.size() == filteredVisibleHittable.size());
 
-		auto filteredVisibleInvisible = FilterAll<Visible, Invisible>(componentArchive, entities);
+		auto filteredVisibleInvisible = Filter::All<Visible, Invisible>(componentArchive, entities);
 		std::cout << "Num of filtered Visible-Invisible : " << filteredVisibleHittable.size() << std::endl;
 
-		auto filteredHittableInvisible = FilterAll<Hittable, Invisible>(componentArchive, entities);
+		auto filteredHittableInvisible = Filter::All<Hittable, Invisible>(componentArchive, entities);
 		std::cout << "Num of filtered Hittable-Invisible : " << filteredVisibleHittable.size() << std::endl;
 
-		auto filteredVisInvHit = FilterAll<Hittable, Visible, Invisible>(componentArchive, entities);
+		auto filteredVisInvHit = Filter::All<Hittable, Visible, Invisible>(componentArchive, entities);
 		std::cout << "Num of filtered Hittable-Visible-Invisible : " << filteredVisInvHit.size() << std::endl;
+
+		auto filteredAny = Filter::Any<Visible, Hittable, Invisible>(componentArchive, entities);
+		assert(entities.size() == filteredAny.size());
+		filteredAny = Filter::Any<Visible, Hittable>(componentArchive, entities);
+
+		auto filteredNone = Filter::None<Visible, Hittable, Invisible>(componentArchive, entities);
+		assert(filteredNone.size() == 0);
 
 		ComponentArchive::DestroyInstance();
 	}
