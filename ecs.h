@@ -65,7 +65,6 @@ namespace sy
 
 	enum class Entity : uint64_t {};
 	constexpr Entity INVALID_ENTITY_HANDLE = static_cast<Entity>(0);
-	constexpr size_t DEFAULT_COMPONENT_POOL_SIZE = 16;
 	constexpr bool USE_RANDOM_NUM_FOR_ENTITY_HANDLE = false;
 	inline Entity GenerateEntity()
 	{
