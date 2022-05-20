@@ -720,7 +720,7 @@ namespace sy
 
 	namespace Filter
 	{
-		std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		static std::vector<Entity> All(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
 		{
 			std::vector<Entity> result;
 			result.reserve((entities.size() / 2) + 2); /** Conservative reserve */
@@ -741,7 +741,7 @@ namespace sy
 			return result;
 		}
 
-		std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		static std::vector<Entity> Any(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
 		{
 			assert(!filter.empty() && "Filter Archetype must contains at least one element.");
 			std::vector<Entity> result;
@@ -769,7 +769,7 @@ namespace sy
 			return result;
 		}
 
-		std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
+		static std::vector<Entity> None(const ComponentArchive& archive, const std::vector<Entity>& entities, const Archetype& filter)
 		{
 			assert(!filter.empty() && "Filter Archetype must contains at least one element.");
 			std::vector<Entity> result;
