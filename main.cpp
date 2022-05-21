@@ -376,6 +376,7 @@ int main()
 			{
 			default: // 50%
 				generateVisible(count, newEntity);
+				break;
 
 			case 3: // 25%
 				generateHittable(count, newEntity);
@@ -405,21 +406,21 @@ int main()
 			}
 
 			randomNumber = dist(gen);
-			switch (randomNumber % 16)
+			switch (randomNumber % 8)
 			{
-			case 1: // 18.75%
-			case 2:
-			case 3:
+			case 0: // 25%
+			case 1:
 				generateVisible(count, newEntity);
 				break;
-
-			case 4: // 12.5%
-			case 5:
+			case 2:
+			case 3:
+			case 4: // 37.5%
 				generateHittable(count, newEntity);
 				break;
 
-			case 6: // 12.5%
+			case 6: // 37.5%
 			case 7:
+			case 5:
 				generateInvisible(count, newEntity);
 				break;
 			}
