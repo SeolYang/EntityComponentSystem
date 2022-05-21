@@ -180,7 +180,16 @@ namespace sy
 
 		Chunk(const Chunk&) = delete;
 		Chunk& operator=(const Chunk&) = delete;
-		Chunk& operator=(Chunk&& rhs) noexcept = delete;
+		Chunk& operator=(Chunk&& rhs) noexcept
+		{
+			mem = std::exchange(rhs.mem, nullptr);
+			allocationPool = std::move(rhs.allocationPool);
+			sizeOfData = std::exchange(rhs.sizeOfData, 0);
+			maxNumOfAllocations = std::exchange(rhs.maxNumOfAllocations, 0);
+			sizeOfChunk = std::exchange(rhs.sizeOfChunk, 0);
+			alignmentOfChunk = std::exchange(rhs.alignmentOfChunk, 0);
+			return (*this);
+		}
 
 		/** Return index of allocation */
 		size_t Allocate()
@@ -206,6 +215,7 @@ namespace sy
 			return (void*)((uintptr_t)mem + (at * sizeOfData));
 		}
 
+		inline bool IsEmpty() const { return allocationPool.size() == MaxNumOfAllocations(); }
 		inline bool IsFull() const { return allocationPool.empty(); }
 		inline size_t MaxNumOfAllocations() const { return maxNumOfAllocations - 1; }
 		inline size_t NumOfAllocations() const { return MaxNumOfAllocations() - allocationPool.size(); }
@@ -283,15 +293,7 @@ namespace sy
 		/** It doesn't call anyof constructor. */
 		Allocation Create()
 		{
-			size_t freeChunkIndex = 0;
-			for (; freeChunkIndex < chunks.size(); ++freeChunkIndex)
-			{
-				if (!chunks[freeChunkIndex].IsFull())
-				{
-					break;
-				}
-			}
-
+			size_t freeChunkIndex = FreeChunkIndex();
 			bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
 			if (bDoesNotFoundFreeChunk)
 			{
@@ -364,6 +366,37 @@ namespace sy
 			}
 
 			return nullptr;
+		}
+
+		bool IsChunkFull(const size_t chunkIndex) const
+		{
+			assert(chunkIndex < chunks.size());
+			return chunks[chunkIndex].IsFull();
+		}
+
+		inline size_t FreeChunkIndex() const
+		{
+			size_t freeChunkIndex = 0;
+			for (; freeChunkIndex < chunks.size(); ++freeChunkIndex)
+			{
+				if (!chunks[freeChunkIndex].IsFull())
+				{
+					break;
+				}
+			}
+
+			return freeChunkIndex;
+		}
+
+		size_t ShrinkToFit()
+		{
+			// Erase-Remove idiom
+			auto reduced = std::erase_if(chunks, [](Chunk& chunk) {
+				return chunk.IsEmpty();
+				});
+
+			chunks.shrink_to_fit();
+			return reduced;
 		}
 
 		/** Just memory data copy, it never call any constructor or destructor. */
@@ -647,6 +680,53 @@ namespace sy
 			}
 		}
 
+		/** 
+		* Trying to degragment 'entire' chunk list and chunks(except not fragmented chunk which is full) 
+		* It maybe will nullyfies any references, pointers that acquired from Attach and Get methods.
+		*/
+		void Defragmentation()
+		{
+			for (auto& archetypeLUTPair : archetypeLUT)
+			{
+				const Entity entity = archetypeLUTPair.first;
+				auto& archetypeData = archetypeLUTPair.second;
+				if (!archetypeData.Archetype.empty() && !archetypeData.Allocation.IsFailedToAllocate())
+				{
+					size_t chunkListIdx = FindChunkList(archetypeData.Archetype);
+					if (chunkListIdx != chunkListLUT.size())
+					{
+						ChunkList& chunkListRef = ReferenceChunkList(chunkListIdx);
+						size_t freeChunkIndex = chunkListRef.FreeChunkIndex();
+						if (freeChunkIndex <= archetypeData.Allocation.ChunkIndex)
+						{
+							ChunkList::Allocation newAllocation = chunkListRef.Create();
+							ChunkList::MoveData(
+								chunkListRef, archetypeData.Allocation,
+								chunkListRef, newAllocation);
+
+							archetypeData.Allocation = newAllocation;
+						}
+					}
+				}
+			}
+		}
+
+		size_t ShrinkToFit(bool bPerformShrinkAfterDefrag = true)
+		{
+			if (bPerformShrinkAfterDefrag)
+			{
+				Defragmentation();
+			}
+
+			size_t reduced = 0;
+			for (auto& chunkListPair : chunkListLUT)
+			{
+				reduced += chunkListPair.second.ShrinkToFit();
+			}
+
+			return reduced;
+		}
+
 	private:
 		ComponentArchive() = default;
 
@@ -665,9 +745,23 @@ namespace sy
 			return idx;
 		}
 
+		size_t FindChunkList(const ArchetypeType& archetype)
+		{
+			size_t idx = 0;
+			for (; idx < chunkListLUT.size(); ++idx)
+			{
+				if (chunkListLUT[idx].first == archetype)
+				{
+					return idx;
+				}
+			}
+
+			return idx;
+		}
+
 		/**
 		* To prevent vector reallocations, always ref chunk list through this method.
-		* And, Do not reference ChunkList directly!!!
+		* Do not reference ChunkList directly when exist possibility to chunkListLUT get modified.
 		*/
 		inline ChunkList& ReferenceChunkList(size_t idx)
 		{
