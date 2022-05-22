@@ -15,7 +15,7 @@ using namespace sy;
 
 struct Visible : Component
 {
-	Visible()
+	Visible() noexcept
 	{
 		++Alloc;
 	}
@@ -37,7 +37,7 @@ struct Visible : Component
 
 struct Hittable : Component
 {
-	Hittable()
+	Hittable() noexcept
 	{
 		++Alloc;
 	}
@@ -57,7 +57,7 @@ struct Hittable : Component
 
 struct Invisible : Component
 {
-	Invisible()
+	Invisible() noexcept
 	{
 		++Alloc;
 	}
@@ -84,23 +84,23 @@ DefineComponent(Invisible);
 
 #define TEST_COUNT 1000000
 
-static std::chrono::milliseconds LinearDataValidation(ComponentArchive& componentArchive, const std::vector<Entity> entities, const Visible& referenceVisible, const Hittable& referenceHittable, const Invisible& referenceInvisible)
+static std::chrono::milliseconds LinearDataValidation(const ComponentArchive& componentArchive, const std::vector<Entity> entities, const Visible& referenceVisible, const Hittable& referenceHittable, const Invisible& referenceInvisible)
 {
-	auto begin = std::chrono::steady_clock::now();
+	const auto begin = std::chrono::steady_clock::now();
 	for (size_t count = 0; count < TEST_COUNT; ++count)
 	{
 		const size_t idx = count;
-		const Entity entity = entities[idx];
+		const Entity entity = entities.at(idx);
 
 		if (entity != INVALID_ENTITY_HANDLE)
 		{
-			Visible* visible = componentArchive.Get<Visible>(entity);
+			const Visible* visible = componentArchive.Get<Visible>(entity);
 			if (visible != nullptr)
 			{
-				bool condition0 = visible->A == (idx + 0xffffff);
-				bool condition1 = visible->B == (idx + 0xf0f0f0);
-				bool condition2 = visible->ClipDistance == 10000.5555f;
-				bool condition3 = visible->VisibleDistance == referenceVisible.VisibleDistance;
+				const bool condition0 = visible->A == (idx + 0xffffff);
+				const bool condition1 = visible->B == (idx + 0xf0f0f0);
+				const bool condition2 = visible->ClipDistance == 10000.5555f;
+				const bool condition3 = visible->VisibleDistance == referenceVisible.VisibleDistance;
 
 				if (!(condition0 && condition1 && condition2))
 				{
@@ -112,12 +112,12 @@ static std::chrono::milliseconds LinearDataValidation(ComponentArchive& componen
 				assert(condition2);
 			}
 
-			Hittable* hittable = (componentArchive.Get<Hittable>(entity));
+			const Hittable* hittable = (componentArchive.Get<Hittable>(entity));
 			if (hittable != nullptr)
 			{
-				bool condition0 = hittable->HitCount == ~static_cast<uint64_t>(entity);
-				bool condition1 = hittable->HitDistance == referenceHittable.HitDistance;
-				bool condition2 = hittable->t == referenceHittable.t;
+				const bool condition0 = hittable->HitCount == ~static_cast<uint64_t>(entity);
+				const bool condition1 = hittable->HitDistance == referenceHittable.HitDistance;
+				const bool condition2 = hittable->t == referenceHittable.t;
 
 				if (!(condition0 && condition1 && condition2))
 				{
@@ -129,10 +129,10 @@ static std::chrono::milliseconds LinearDataValidation(ComponentArchive& componen
 				assert(condition2);
 			}
 
-			Invisible* invisible = (componentArchive.Get<Invisible>(entity));
+			const Invisible* invisible = (componentArchive.Get<Invisible>(entity));
 			if (invisible != nullptr)
 			{
-				bool condition0 = invisible->Duration == referenceInvisible.Duration;
+				const bool condition0 = invisible->Duration == referenceInvisible.Duration;
 				if (!condition0)
 				{
 					std::cout << "Failed to checks validation of Invisible at " << idx << std::endl;
@@ -146,26 +146,26 @@ static std::chrono::milliseconds LinearDataValidation(ComponentArchive& componen
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin);
 }
 
-static std::chrono::milliseconds RandomDataValidation(ComponentArchive& componentArchive, const std::vector<Entity> entities, const Visible& referenceVisible, const Hittable& referenceHittable, const Invisible& referenceInvisible)
+static std::chrono::milliseconds RandomDataValidation(const ComponentArchive& componentArchive, const std::vector<Entity> entities, const Visible& referenceVisible, const Hittable& referenceHittable, const Invisible& referenceInvisible)
 {
 	std::random_device rd;
 	std::mt19937 gen(rd());
-	std::uniform_int_distribution<size_t> accessDist(0, entities.size() - 1);
+	const std::uniform_int_distribution<size_t> accessDist(0, entities.size() - 1);
 
-	auto begin = std::chrono::steady_clock::now();
+	const auto begin = std::chrono::steady_clock::now();
 	for (size_t count = 0; count < TEST_COUNT; ++count)
 	{
 		const size_t idx = accessDist(gen);
-		const Entity entity = entities[idx];
+		const Entity entity = entities.at(idx);
 		if (entity != INVALID_ENTITY_HANDLE)
 		{
-			Visible* visible = componentArchive.Get<Visible>(entity);
+			const Visible* visible = componentArchive.Get<Visible>(entity);
 			if (visible != nullptr)
 			{
-				bool condition0 = visible->A == (idx + 0xffffff);
-				bool condition1 = visible->B == (idx + 0xf0f0f0);
-				bool condition2 = visible->ClipDistance == 10000.5555f;
-				bool condition3 = visible->VisibleDistance == referenceVisible.VisibleDistance;
+				const bool condition0 = visible->A == (idx + 0xffffff);
+				const bool condition1 = visible->B == (idx + 0xf0f0f0);
+				const bool condition2 = visible->ClipDistance == 10000.5555f;
+				const bool condition3 = visible->VisibleDistance == referenceVisible.VisibleDistance;
 
 				if (!(condition0 && condition1 && condition2))
 				{
@@ -177,12 +177,12 @@ static std::chrono::milliseconds RandomDataValidation(ComponentArchive& componen
 				assert(condition2);
 			}
 
-			Hittable* hittable = (componentArchive.Get<Hittable>(entity));
+			const Hittable* hittable = (componentArchive.Get<Hittable>(entity));
 			if (hittable != nullptr)
 			{
-				bool condition0 = hittable->HitCount == ~static_cast<uint64_t>(entity);
-				bool condition1 = hittable->HitDistance == referenceHittable.HitDistance;
-				bool condition2 = hittable->t == referenceHittable.t;
+				const bool condition0 = hittable->HitCount == ~static_cast<uint64_t>(entity);
+				const bool condition1 = hittable->HitDistance == referenceHittable.HitDistance;
+				const bool condition2 = hittable->t == referenceHittable.t;
 
 				if (!(condition0 && condition1 && condition2))
 				{
@@ -194,10 +194,10 @@ static std::chrono::milliseconds RandomDataValidation(ComponentArchive& componen
 				assert(condition2);
 			}
 
-			Invisible* invisible = (componentArchive.Get<Invisible>(entity));
+			const Invisible* invisible = (componentArchive.Get<Invisible>(entity));
 			if (invisible != nullptr)
 			{
-				bool condition0 = invisible->Duration == referenceInvisible.Duration;
+				const bool condition0 = invisible->Duration == referenceInvisible.Duration;
 				if (!condition0)
 				{
 					std::cout << "Failed to checks validation of Invisible at " << idx << std::endl;
@@ -232,7 +232,7 @@ int main()
 
 		/******************************************************************/
 		/* Test API basis by manually */
-		Entity e0 = GenerateEntity();
+		const Entity e0 = GenerateEntity();
 		Visible* visible = componentArchive.Attach<Visible>(e0);
 		assert(visible != nullptr);
 		assert(visible == componentArchive.Get<Visible>(e0));
@@ -314,7 +314,7 @@ int main()
 		std::vector<Entity> entities;
 		std::random_device rd;
 		std::mt19937 gen(rd());
-		std::uniform_int_distribution dist(0, 99);
+		const std::uniform_int_distribution dist(0, 99);
 
 		/******************************************************************/
 		/* Initial Random Generations & Linear, Random Access Data Validation */
@@ -355,7 +355,7 @@ int main()
 		const auto generateInvisible =
 			[&componentArchive, &generatedEntity, &attachedComponent, &invisibleAllocCount, &allocatedComponentSize](const size_t count, const Entity entity)
 		{
-			Invisible* invisible = componentArchive.Attach<Invisible>(entity);
+			const Invisible* invisible = componentArchive.Attach<Invisible>(entity);
 			if (invisible != nullptr)
 			{
 				++invisibleAllocCount;
@@ -403,6 +403,8 @@ int main()
 			case 4:
 				generateInvisible(count, newEntity);
 				break;
+			default:
+				break;
 			}
 
 			randomNumber = dist(gen);
@@ -422,6 +424,8 @@ int main()
 			case 7:
 			case 5:
 				generateInvisible(count, newEntity);
+				break;
+			default:
 				break;
 			}
 		}
@@ -486,18 +490,18 @@ int main()
 		/******************************************************************/
 		/* Random Destroy Tests */
 		std::cout << std::endl << std::endl << yellow << "* Random Entity Destroy Tests" << reset << std::endl;
-		std::uniform_int_distribution<size_t> accessDist(0, entities.size() - 1);
+		const std::uniform_int_distribution<size_t> accessDist(0, entities.size() - 1);
 		begin = std::chrono::steady_clock::now();
 		size_t destroyedCount = 0;
 		for (size_t count = 0; count < (TEST_COUNT / 2); ++count)
 		{
 			const size_t idx = accessDist(gen);
-			const Entity entity = entities[idx];
+			const Entity entity = entities.at(idx);
 
 			if (entity != INVALID_ENTITY_HANDLE)
 			{
 				componentArchive.Destroy(entity);
-				entities[idx] = INVALID_ENTITY_HANDLE;
+				entities.at(idx) = INVALID_ENTITY_HANDLE;
 				++destroyedCount;
 			}
 		}
@@ -515,7 +519,7 @@ int main()
 		/* Defragmentation Tests */
 		std::cout << std::endl << std::endl << yellow << "* Defragmentation & ShrinkToFit Tests" << reset << std::endl;
 		begin = std::chrono::steady_clock::now();
-		auto reduced = componentArchive.ShrinkToFit();
+		const auto reduced = componentArchive.ShrinkToFit();
 		end = std::chrono::steady_clock::now();
 		std::cout << "** Defragmentation & ShrinkToFit takes " << green << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << reset << " ms" << std::endl;
 		std::cout << "** Reduced Chunks -> " << red << reduced << reset << std::endl;
