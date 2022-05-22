@@ -1,4 +1,5 @@
 ﻿#include "ECS.h"
+//#include "ECS_Before_Memory_Optimizations.h"
 #include <cassert>
 #include <array>
 #include <random>
@@ -12,6 +13,10 @@ using namespace sy;
 #ifdef _DEBUG
 #define new new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
 #endif
+
+struct Tag
+{
+};
 
 struct Visible : Component
 {
