@@ -49,12 +49,6 @@ namespace sy::utils
 
 namespace sy
 {
-	template <typename T>
-	using OptionalRef = std::optional<std::reference_wrapper<T>>;
-}
-
-namespace sy
-{
 	struct Component
 	{
 		virtual ~Component() = default;
@@ -237,8 +231,8 @@ namespace sy
 	public:
 		struct Allocation
 		{
-			size_t ChunkIndex = static_cast<size_t>(-1);
-			size_t AllocationIndexOfEntity = static_cast<size_t>(-1);
+			size_t ChunkIndex = std::numeric_limits<size_t>::max();
+			size_t AllocationIndexOfEntity = std::numeric_limits<size_t>::max();
 
 			inline bool IsFailedToAllocate() const noexcept { return (ChunkIndex == static_cast<size_t>(-1)) || (AllocationIndexOfEntity == static_cast<size_t>(-1)); }
 		};
@@ -253,20 +247,24 @@ namespace sy
 		ChunkList(const std::vector<ComponentInfo>& componentInfos)
 		{
 			size_t offset = 0;
-			for (const ComponentInfo& info : componentInfos)
+			if (!componentInfos.empty())
 			{
-				componentAllocInfos.emplace_back(ComponentAllocationInfo
-					{
-						.Range = ComponentRange
+				for (const ComponentInfo& info : componentInfos)
+				{
+					componentAllocInfos.emplace_back(ComponentAllocationInfo
 						{
-							.Offset = offset,
-							.Size = info.Size
-						},
-						.ID = info.ID
-					});
-				offset += info.Size;
-			}
+							.Range = ComponentRange
+							{
+								.Offset = offset,
+								.Size = info.Size
+							},
+							.ID = info.ID
+						});
+					offset += info.Size;
+				}
 
+				componentAllocInfos.shrink_to_fit();
+			}
 			sizeOfData = offset;
 		}
 
@@ -293,6 +291,7 @@ namespace sy
 		/** It doesn't call anyof constructor. */
 		Allocation Create()
 		{
+			assert(sizeOfData > 0);
 			const size_t freeChunkIndex = FreeChunkIndex();
 			const bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
 			if (bDoesNotFoundFreeChunk)
@@ -316,8 +315,6 @@ namespace sy
 			assert(allocation.ChunkIndex < chunks.size());
 			chunks.at(allocation.ChunkIndex).Deallocate(allocation.AllocationIndexOfEntity);
 		}
-
-		std::vector<ComponentAllocationInfo> ComponentAllocationInfos() const { return componentAllocInfos; }
 
 		ComponentAllocationInfo AllocationInfoOfComponent(const ComponentID componentID) const
 		{
@@ -449,7 +446,7 @@ namespace sy
 
 		struct ArchetypeData
 		{
-			ArchetypeType Archetype;
+			size_t ArchetypeIndex = 0;
 			ChunkList::Allocation Allocation;
 		};
 
@@ -507,8 +504,8 @@ namespace sy
 			const auto foundArchetypeItr = archetypeLUT.find(entity);
 			if (foundArchetypeItr != archetypeLUT.end())
 			{
-				const auto& foundArchetype = (foundArchetypeItr->second);
-				return utils::HasKey(foundArchetype.Archetype, componentID);
+				const auto& foundArchetypeData = (foundArchetypeItr->second);
+				return utils::HasKey(ReferenceArchetype(foundArchetypeData.ArchetypeIndex), componentID);
 			}
 
 			return false;
@@ -539,9 +536,9 @@ namespace sy
 			const auto rhsItr = archetypeLUT.find(rhs);
 			if (lhsItr != archetypeLUT.end() && rhsItr != archetypeLUT.end())
 			{
-				const auto& lhsArchetype= lhsItr->second.Archetype;
-				const auto& rhsArchetype = rhsItr->second.Archetype;
-				return lhsArchetype == rhsArchetype;
+				const auto& lhsArchetypeData = lhsItr->second;
+				const auto& rhsArchetypeData = rhsItr->second;
+				return lhsArchetypeData.ArchetypeIndex == rhsArchetypeData.ArchetypeIndex;
 			}
 
 			// If both itrerator is entityLUT.end(), it means those are empty and at same time equal archetype.
@@ -552,39 +549,42 @@ namespace sy
 		{
 			if (utils::HasKey(archetypeLUT, entity))
 			{
-				return archetypeLUT.find(entity)->second.Archetype;
+				return ReferenceArchetype(archetypeLUT.find(entity)->second.ArchetypeIndex);
 			}
 
 			return ArchetypeType();
 		}
 
 		/** Return nullptr, if component is already exist or failed to attach. */
-		Component* Attach(const Entity entity, ComponentID componentID, bool bCallDefaultConstructor = true)
+		Component* Attach(const Entity entity, const ComponentID componentID, const bool bCallDefaultConstructor = true)
 		{
 			Component* result = nullptr;
 			if (!Contains(entity, componentID))
 			{
 				if (!utils::HasKey(archetypeLUT, entity))
 				{
-					archetypeLUT[entity] = {};
+					archetypeLUT[entity] = ArchetypeData();
 				}
 
 				ArchetypeData& archetypeData = archetypeLUT[entity];
-				ArchetypeType& archetype = archetypeData.Archetype;
-				ArchetypeType oldArchetype = archetype;
+				ArchetypeType archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
+				const ArchetypeType oldArchetype = archetype;
 				archetype.insert(componentID);
 
-				const size_t chunkList = FindOrCreateChunkList(archetype);
-				const ChunkList::Allocation newAllocation = ReferenceChunkList(chunkList).Create();
+				const auto newChunkListIdx = FindOrCreateChunkList(archetype);
+				const ChunkList::Allocation newAllocation = ReferenceChunkList(newChunkListIdx).Create();
 				if (!newAllocation.IsFailedToAllocate() && !oldArchetype.empty())
 				{
-					const size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
-					ChunkList::MoveData(ReferenceChunkList(oldChunkList), archetypeLUT[entity].Allocation, ReferenceChunkList(chunkList), newAllocation);
+					const auto oldChunkListIdx = FindOrCreateChunkList(oldArchetype);
+					ChunkList::MoveData(
+						ReferenceChunkList(oldChunkListIdx), archetypeLUT[entity].Allocation, 
+						ReferenceChunkList(newChunkListIdx), newAllocation);
 				}
+
 				archetypeData.Allocation = newAllocation;
+				archetypeData.ArchetypeIndex = newChunkListIdx;
 
-				result = static_cast<Component*>(ReferenceChunkList(chunkList).AddressOf(newAllocation, componentID));
-
+				result = static_cast<Component*>(ReferenceChunkList(newChunkListIdx).AddressOf(newAllocation, componentID));
 				if (bCallDefaultConstructor)
 				{
 					const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
@@ -618,28 +618,31 @@ namespace sy
 			if (Contains(entity, componentID))
 			{
 				ArchetypeData& archetypeData = archetypeLUT[entity];
-				ArchetypeType& archetype = archetypeData.Archetype;
-				ArchetypeType oldArchetype = archetype;
+				ArchetypeType archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
+				const ArchetypeType oldArchetype = archetype;
 				archetype.erase(componentID);
 
-				const size_t oldChunkList = FindOrCreateChunkList(oldArchetype);
+				const auto oldChunkListIdx = FindOrCreateChunkList(oldArchetype);
 				const ChunkList::Allocation oldAllocation = archetypeData.Allocation;
-				void* detachComponentPtr = ReferenceChunkList(oldChunkList).AddressOf(oldAllocation, componentID);
+				void* detachComponentPtr = ReferenceChunkList(oldChunkListIdx).AddressOf(oldAllocation, componentID);
+
 				const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 				dynamicComponentData.Destructor(detachComponentPtr);
 
 				if (!archetype.empty())
 				{
-					const size_t newChunkList = FindOrCreateChunkList(archetype);
-					const ChunkList::Allocation newAllocation = ReferenceChunkList(newChunkList).Create();
+					const auto newChunkListIdx = FindOrCreateChunkList(archetype);
+					const ChunkList::Allocation newAllocation = ReferenceChunkList(newChunkListIdx).Create();
 					ChunkList::MoveData(
-						ReferenceChunkList(oldChunkList), oldAllocation,
-						ReferenceChunkList(newChunkList), newAllocation);
+						ReferenceChunkList(oldChunkListIdx), oldAllocation,
+						ReferenceChunkList(newChunkListIdx), newAllocation);
+					archetypeData.Allocation = newAllocation;
+					archetypeData.ArchetypeIndex = newChunkListIdx;
 				}
 				else
 				{
-					ReferenceChunkList(oldChunkList).Destroy(oldAllocation);
-					archetypeData.Allocation = ChunkList::Allocation();
+					ReferenceChunkList(oldChunkListIdx).Destroy(oldAllocation);
+					archetypeData = ArchetypeData();
 				}
 			}
 		}
@@ -661,10 +664,10 @@ namespace sy
 			if (utils::HasKey(archetypeLUT, entity))
 			{
 				const auto& archetypeData = archetypeLUT[entity];
-				const auto& archetype = archetypeData.Archetype;
+				const ArchetypeType& archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
 				if (!archetype.empty())
 				{
-					const size_t chunkList = FindOrCreateChunkList(archetype);
+					const auto chunkList = FindOrCreateChunkList(archetype);
 					const ChunkList::Allocation oldAllocation = archetypeData.Allocation;
 					for (const ComponentID componentID : archetype)
 					{
@@ -690,9 +693,10 @@ namespace sy
 			{
 				const Entity entity = archetypeLUTPair.first;
 				auto& archetypeData = archetypeLUTPair.second;
-				if (!archetypeData.Archetype.empty() && !archetypeData.Allocation.IsFailedToAllocate())
+				const ArchetypeType& archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
+				if (!archetype.empty() && !archetypeData.Allocation.IsFailedToAllocate())
 				{
-					const size_t chunkListIdx = FindChunkList(archetypeData.Archetype);
+					const size_t chunkListIdx = FindChunkList(archetype);
 					if (chunkListIdx != chunkListLUT.size())
 					{
 						ChunkList& chunkListRef = ReferenceChunkList(chunkListIdx);
@@ -711,12 +715,14 @@ namespace sy
 			}
 		}
 
-		size_t ShrinkToFit(bool bPerformShrinkAfterDefrag = true)
+		size_t ShrinkToFit(const bool bPerformShrinkAfterDefrag = true)
 		{
 			if (bPerformShrinkAfterDefrag)
 			{
 				Defragmentation();
 			}
+
+			chunkListLUT.shrink_to_fit();
 
 			size_t reduced = 0;
 			for (auto& chunkListPair : chunkListLUT)
@@ -728,7 +734,10 @@ namespace sy
 		}
 
 	private:
-		ComponentArchive() = default;
+		ComponentArchive() noexcept
+		{
+			chunkListLUT.emplace_back(ArchetypeType(), ChunkList({}));
+		}
 
 		size_t FindOrCreateChunkList(const ArchetypeType& archetype)
 		{
@@ -737,11 +746,15 @@ namespace sy
 			{
 				if (chunkListLUT.at(idx).first == archetype)
 				{
-					return idx;
+					break;
 				}
 			}
 
-			chunkListLUT.emplace_back(archetype, ChunkList(RetrieveComponentInfosFromArchetype(archetype)));
+			if (idx == chunkListLUT.size())
+			{
+				chunkListLUT.emplace_back(archetype, ChunkList(RetrieveComponentInfosFromArchetype(archetype)));
+			}
+
 			return idx;
 		}
 
@@ -763,10 +776,12 @@ namespace sy
 		* To prevent vector reallocations, always ref chunk list through this method.
 		* Do not reference ChunkList directly when exist possibility to chunkListLUT get modified.
 		*/
-		inline ChunkList& ReferenceChunkList(size_t idx)
+		inline ChunkList& ReferenceChunkList(const size_t idx)
 		{
 			return chunkListLUT.at(idx).second;
 		}
+
+		inline const ArchetypeType& ReferenceArchetype(const size_t idx) const { return chunkListLUT.at(idx).first; }
 
 		std::vector<ComponentInfo> RetrieveComponentInfosFromArchetype(const ArchetypeType& archetype) const
 		{
@@ -786,7 +801,7 @@ namespace sy
 			if (Contains(entity, componentID))
 			{
 				const auto& archetypeData = archetypeLUT.find(entity)->second;
-				const auto& archetype = archetypeData.Archetype;
+				const ArchetypeType& archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
 				const ChunkList::Allocation& allocation = archetypeData.Allocation;
 				for (const auto& archetypeChunkList : chunkListLUT)
 				{

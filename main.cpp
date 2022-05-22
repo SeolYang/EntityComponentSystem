@@ -312,6 +312,7 @@ int main()
 		++visibleAllocCount;
 
 		std::vector<Entity> entities;
+		entities.reserve(TEST_COUNT);
 		std::random_device rd;
 		std::mt19937 gen(rd());
 		const std::uniform_int_distribution dist(0, 99);
