@@ -801,11 +801,11 @@ namespace sy
 				const auto& archetypeData = archetypeLUT.find(entity)->second;
 				const Archetype& archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
 				const ChunkList::Allocation& allocation = archetypeData.Allocation;
-				for (const auto& archetypeChunkList : chunkListLUT)
+				for (size_t idx = 1; idx < chunkListLUT.size(); ++idx) // Except null archetype
 				{
-					if (archetype == archetypeChunkList.first)
+					if (archetypeData.ArchetypeIndex == idx)
 					{
-						const ChunkList& chunkList = archetypeChunkList.second;
+						const auto& chunkList = chunkListLUT.at(idx).second;
 						return static_cast<Component*>(chunkList.AddressOf(allocation, componentID));
 					}
 				}
