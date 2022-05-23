@@ -234,7 +234,6 @@ int main()
 	std::this_thread::sleep_for(std::chrono::seconds(2));
 	{
 		auto& componentArchive = ComponentArchive::Instance();
-
 		/******************************************************************/
 		/* Test API basis by manually */
 		const Entity e0 = GenerateEntity();

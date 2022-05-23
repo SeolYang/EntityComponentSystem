@@ -14,6 +14,8 @@
 #include <queue>
 #include <functional>
 #include <mutex>
+#include <map>
+#include "robin_hood.h"
 
 namespace sy::utils
 {
@@ -818,8 +820,8 @@ namespace sy
 		static inline std::unique_ptr<ComponentArchive> instance;
 		static inline std::once_flag instanceCreationOnceFlag;
 		static inline std::once_flag instanceDestructionOnceFlag;
-		std::unordered_map<ComponentID, DynamicComponentData> dynamicComponentDataLUT;
-		std::unordered_map<Entity, ArchetypeData> archetypeLUT;
+		robin_hood::unordered_flat_map<ComponentID, DynamicComponentData> dynamicComponentDataLUT;
+		robin_hood::unordered_flat_map<Entity, ArchetypeData> archetypeLUT;
 		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
 
 	};
@@ -927,7 +929,6 @@ namespace sy
 			return None(archive, entities, filterArchetype);
 		}
 	}
-
 }
 
 #define COMPONENT_TYPE_HASH(x) sy::utils::ELFHash(#x)

@@ -87,6 +87,7 @@
   <ItemGroup>
     <ClInclude Include="ECS.h" />
     <ClInclude Include="ECS_Before_Memory_Optimizations.h" />
+    <ClInclude Include="robin_hood.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

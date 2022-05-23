@@ -23,5 +23,8 @@
     <ClInclude Include="ECS_Before_Memory_Optimizations.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
+    <ClInclude Include="robin_hood.h">
+      <Filter>Sources\ECS</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
