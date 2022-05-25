@@ -1,2 +1,2 @@
 # EntityComponentSystem
-Single-Header ECS with C++
+ECS with C++ 20
