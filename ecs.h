@@ -452,6 +452,44 @@ namespace sy
 			ChunkList::Allocation Allocation;
 		};
 
+		template <ComponentType T>
+		class ComponentHandle
+		{
+		public:
+			ComponentHandle(const ComponentArchive& archive, const Entity entity) noexcept :
+				archive(archive),
+				entity(entity)
+			{
+			}
+
+			~ComponentHandle() = default;
+
+			ComponentHandle(const ComponentHandle&) noexcept = default;
+			ComponentHandle(ComponentHandle&&) noexcept = default;
+			ComponentHandle& operator=(const ComponentHandle&) noexcept = default;
+			ComponentHandle& operator=(ComponentHandle&&) noexcept = default;
+
+			T& operator*() { return Reference(); }
+			const T& operator*() const { return Reference(); }
+
+			T* operator->() { return archive.Get<T>(entity); }
+			const T* operator->() const { return archive.Get<T>(entity);}
+
+			operator bool() const { return IsValid(); }
+			constexpr operator ComponentID() const noexcept { return QueryComponentID<T>(); }
+
+			T& Reference() { return *archive.Get<T>(entity); }
+			const T& Reference() const { return *archive.Get<T>(entity); }
+
+			Entity Owner() const noexcept { return entity; }
+			bool IsValid() const noexcept { return archive.Contains<T>(entity); }
+
+		private:
+			const ComponentArchive& archive;
+			const Entity entity;
+
+		};
+
 	public:
 		ComponentArchive(const ComponentArchive&) = delete;
 		ComponentArchive(ComponentArchive&&) = delete;
@@ -654,6 +692,12 @@ namespace sy
 		}
 
 		template <ComponentType T>
+		ComponentHandle<T> GetHandle(const Entity entity) const noexcept
+		{
+			return ComponentHandle<T>(*this, entity);
+		}
+
+		template <ComponentType T>
 		T* Get(const Entity entity) const
 		{
 			return reinterpret_cast<T*>(Get(entity, QueryComponentID<T>()));
@@ -825,6 +869,9 @@ namespace sy
 		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
 
 	};
+
+	template <ComponentType T>
+	using ComponentHandle = ComponentArchive::ComponentHandle<T>;
 
 	namespace Filter
 	{

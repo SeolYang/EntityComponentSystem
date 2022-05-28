@@ -238,6 +238,7 @@ int main()
 		/* Test API basis by manually */
 		const Entity e0 = GenerateEntity();
 		Visible* visible = componentArchive.Attach<Visible>(e0);
+		const auto visibleHandle = componentArchive.GetHandle<Visible>(e0);
 		assert(visible != nullptr);
 		assert(visible == componentArchive.Get<Visible>(e0));
 		assert(componentArchive.Attach<Visible>(e0) == nullptr);
@@ -268,6 +269,10 @@ int main()
 
 		referenceVisible.VisibleDistance = 2525.2525f;
 		visible->VisibleDistance = 2525.2525f;
+
+		// Visible Handle will be not expired even after attach new component.
+		assert(visible->VisibleDistance == visibleHandle->VisibleDistance);
+		assert(visibleHandle.IsValid());
 		referenceHittable.HitCount = 33333333;
 		hittable->HitCount = 33333333;
 
@@ -300,6 +305,8 @@ int main()
 		hittable = componentArchive.Get<Hittable>(e0);
 		invisible = componentArchive.Get<Invisible>(e0);
 		visible = componentArchive.Get<Visible>(e0);
+		assert(!visibleHandle.IsValid()); /** Visible Handle is no longer valid. */
+		assert(visibleHandle); /** Visible Handle is no longer valid. */
 		assert(visible == nullptr);
 		assert(hittable != nullptr);
 		assert(invisible != nullptr);
