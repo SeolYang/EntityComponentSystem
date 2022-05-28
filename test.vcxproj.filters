@@ -24,6 +24,9 @@
       <Filter>Sources\ECS</Filter>
     </ClInclude>
     <ClInclude Include="robin_hood.h">
+      <Filter>Sources</Filter>
+    </ClInclude>
+    <ClInclude Include="ECS_MT.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,4 +1,4 @@
-﻿#include "ECS.h"
+﻿#include "ECS_MT.h"
 //#include "ECS_Before_Memory_Optimizations.h"
 #include <cassert>
 #include <array>
@@ -237,19 +237,23 @@ int main()
 		/******************************************************************/
 		/* Test API basis by manually */
 		const Entity e0 = GenerateEntity();
-		Visible* visible = componentArchive.Attach<Visible>(e0);
+		bool result = componentArchive.Attach<Visible>(e0);
+		assert(result);
+		Visible* visible = componentArchive.Get<Visible>(e0);
 		const auto visibleHandle = componentArchive.GetHandle<Visible>(e0);
 		assert(visible != nullptr);
 		assert(visible == componentArchive.Get<Visible>(e0));
-		assert(componentArchive.Attach<Visible>(e0) == nullptr);
+		assert(!componentArchive.Attach<Visible>(e0));
 		++visibleAllocCount;
 
 		// 'visible' pointer will be expired at here
-		Hittable* hittable = componentArchive.Attach<Hittable>(e0);
+		result = componentArchive.Attach<Hittable>(e0);
+		assert(result);
+		Hittable* hittable = componentArchive.Get<Hittable>(e0);
 		assert(hittable != nullptr);
 		assert(hittable == componentArchive.Get<Hittable>(e0));
-		assert(componentArchive.Attach<Visible>(e0) == nullptr);
-		assert(componentArchive.Attach<Hittable>(e0) == nullptr);
+		assert(!componentArchive.Attach<Visible>(e0));
+		assert(!componentArchive.Attach<Hittable>(e0));
 		++hittableAllocCount;
 
 		// Check validation of component value #1
@@ -277,13 +281,15 @@ int main()
 		hittable->HitCount = 33333333;
 
 		// 'visible' pointer and 'hittable' pointer will be expired at here 
-		Invisible* invisible = componentArchive.Attach<Invisible>(e0);
+		result = componentArchive.Attach<Invisible>(e0);
+		assert(result);
+		Invisible* invisible = componentArchive.Get<Invisible>(e0);
 		++invisibleAllocCount;
 		assert(invisible != nullptr);
 		assert(invisible == componentArchive.Get<Invisible>(e0));
-		assert(componentArchive.Attach<Visible>(e0) == nullptr);
-		assert(componentArchive.Attach<Hittable>(e0) == nullptr);
-		assert(componentArchive.Attach<Invisible>(e0) == nullptr);
+		assert(!componentArchive.Attach<Visible>(e0));
+		assert(!componentArchive.Attach<Hittable>(e0));
+		assert(!componentArchive.Attach<Invisible>(e0));
 
 		// Check validation of component value #2
 		Invisible referenceInvisible;
@@ -306,7 +312,6 @@ int main()
 		invisible = componentArchive.Get<Invisible>(e0);
 		visible = componentArchive.Get<Visible>(e0);
 		assert(!visibleHandle.IsValid()); /** Visible Handle is no longer valid. */
-		assert(visibleHandle); /** Visible Handle is no longer valid. */
 		assert(visible == nullptr);
 		assert(hittable != nullptr);
 		assert(invisible != nullptr);
@@ -339,40 +344,50 @@ int main()
 		const auto generateVisible = 
 			[&componentArchive, &generatedEntity, &attachedComponent, &visibleAllocCount, &allocatedComponentSize](const size_t count, const Entity entity) 
 		{
-			Visible* visible = componentArchive.Attach<Visible>(entity);
-			if (visible != nullptr)
+			if (componentArchive.Attach<Visible>(entity))
 			{
-				visible->A = count + 0xffffff;
-				visible->B = count + 0xf0f0f0;
-				visible->ClipDistance = 10000.5555f;
-				++visibleAllocCount;
-				++attachedComponent;
-				allocatedComponentSize += sizeof(Visible);
+				Visible* visible = componentArchive.Get<Visible>(entity);
+				if (visible != nullptr)
+				{
+					visible->A = count + 0xffffff;
+					visible->B = count + 0xf0f0f0;
+					visible->ClipDistance = 10000.5555f;
+					++visibleAllocCount;
+					++attachedComponent;
+					allocatedComponentSize += sizeof(Visible);
+				}
 			}
+
 		};
 
 		const auto generateHittable =
 			[&componentArchive, &generatedEntity, &attachedComponent, &hittableAllocCount, &allocatedComponentSize](const size_t count, const Entity entity)
 		{
-			Hittable* hittable = componentArchive.Attach<Hittable>(entity);
-			if (hittable != nullptr)
+			if (componentArchive.Attach<Hittable>(entity))
 			{
-				++hittableAllocCount;
-				++attachedComponent;
-				hittable->HitCount = ~static_cast<uint64_t>(entity);
-				allocatedComponentSize += sizeof(Hittable);
+				Hittable* hittable = componentArchive.Get<Hittable>(entity);
+				if (hittable != nullptr)
+				{
+					++hittableAllocCount;
+					++attachedComponent;
+					hittable->HitCount = ~static_cast<uint64_t>(entity);
+					allocatedComponentSize += sizeof(Hittable);
+				}
 			}
 		};
 
 		const auto generateInvisible =
 			[&componentArchive, &generatedEntity, &attachedComponent, &invisibleAllocCount, &allocatedComponentSize](const size_t count, const Entity entity)
 		{
-			const Invisible* invisible = componentArchive.Attach<Invisible>(entity);
-			if (invisible != nullptr)
+			if (componentArchive.Attach<Invisible>(entity))
 			{
-				++invisibleAllocCount;
-				++attachedComponent;
-				allocatedComponentSize += sizeof(Invisible);
+				const Invisible* invisible = componentArchive.Get<Invisible>(entity);
+				if (invisible != nullptr)
+				{
+					++invisibleAllocCount;
+					++attachedComponent;
+					allocatedComponentSize += sizeof(Invisible);
+				}
 			}
 		};
 
