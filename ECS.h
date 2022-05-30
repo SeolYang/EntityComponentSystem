@@ -201,8 +201,6 @@ namespace sy
 		void Deallocate(size_t at)
 		{
 			assert(at < MaxNumOfAllocations());
-			//assert((std::find(allocationPool.cbegin(), allocationPool.cend(), at) == allocationPool.cend()));
-			//allocationPool.push_back(at);
 			allocationPool.push(at);
 		}
 
@@ -437,6 +435,10 @@ namespace sy
 	};
 
 	using Archetype = std::set<ComponentID>;
+
+	/**
+	* @brief	ComponentArchive itself guarantee thread-safety. But component which stored inside of it is not a thread-safe.
+	*/
 	class ComponentArchive
 	{
 	public:
@@ -489,6 +491,10 @@ namespace sy
 
 		};
 
+		using Mutex_t = std::shared_timed_mutex;
+		using WriteLock_t = std::unique_lock<Mutex_t>;
+		using ReadOnlyLock_t = std::shared_lock<Mutex_t>;
+
 	public:
 		ComponentArchive(const ComponentArchive&) = delete;
 		ComponentArchive(ComponentArchive&&) = delete;
@@ -540,6 +546,7 @@ namespace sy
 
 		bool Contains(const Entity entity, const ComponentID componentID) const
 		{
+			ReadOnlyLock_t lock{ mutex };
 			const auto foundArchetypeItr = archetypeLUT.find(entity);
 			if (foundArchetypeItr != archetypeLUT.end())
 			{
@@ -558,6 +565,7 @@ namespace sy
 
 		bool IsSameArchetype(const Entity lhs, const Entity rhs) const
 		{
+			ReadOnlyLock_t lock{ mutex };
 			const auto lhsItr = archetypeLUT.find(lhs);
 			const auto rhsItr = archetypeLUT.find(rhs);
 			if (lhsItr != archetypeLUT.end() && rhsItr != archetypeLUT.end())
@@ -573,6 +581,7 @@ namespace sy
 
 		Archetype QueryArchetype(const Entity entity) const
 		{
+			ReadOnlyLock_t lock{ mutex };
 			if (utils::HasKey(archetypeLUT, entity))
 			{
 				return ReferenceArchetype(archetypeLUT.find(entity)->second.ArchetypeIndex);
@@ -584,6 +593,7 @@ namespace sy
 		/** Return nullptr, if component is already exist or failed to attach. */
 		bool Attach(const Entity entity, const ComponentID componentID, const bool bCallDefaultConstructor = true)
 		{
+			WriteLock_t lock{ mutex };
 			Component* result = nullptr;
 			if (!ContainsUnsafe(entity, componentID))
 			{
@@ -627,6 +637,7 @@ namespace sy
 			constexpr ComponentID componentID = QueryComponentID<T>();
 			Component* result = nullptr;
 
+			WriteLock_t lock{ mutex };
 			if (!ContainsUnsafe(entity, componentID))
 			{
 				if (!utils::HasKey(archetypeLUT, entity))
@@ -671,6 +682,7 @@ namespace sy
 
 		void Detach(const Entity entity, const ComponentID componentID)
 		{
+			WriteLock_t lock{ mutex };
 			if (ContainsUnsafe(entity, componentID))
 			{
 				ArchetypeData& archetypeData = archetypeLUT[entity];
@@ -708,6 +720,9 @@ namespace sy
 			Detach(entity, QueryComponentID<T>());
 		}
 
+		/**
+		* @brief	Return Deferred Access Handle Object.
+		*/
 		template <ComponentType T>
 		ComponentHandle<T> GetHandle(const Entity entity) const noexcept
 		{
@@ -716,6 +731,7 @@ namespace sy
 
 		Component* Get(const Entity entity, const ComponentID componentID) const
 		{
+			ReadOnlyLock_t lock{ mutex };
 			if (ContainsUnsafe(entity, componentID))
 			{
 				const auto& archetypeData = archetypeLUT.find(entity)->second;
@@ -742,6 +758,7 @@ namespace sy
 
 		void Destroy(const Entity entity)
 		{
+			WriteLock_t lock(mutex);
 			if (utils::HasKey(archetypeLUT, entity))
 			{
 				const auto& archetypeData = archetypeLUT[entity];
@@ -770,6 +787,7 @@ namespace sy
 		*/
 		void Defragmentation()
 		{
+			WriteLock_t lock(mutex);
 			for (auto& archetypeLUTPair : archetypeLUT)
 			{
 				const Entity entity = archetypeLUTPair.first;
@@ -803,6 +821,7 @@ namespace sy
 				Defragmentation();
 			}
 
+			WriteLock_t lock(mutex);
 			chunkListLUT.shrink_to_fit();
 
 			size_t reduced = 0;
@@ -893,6 +912,7 @@ namespace sy
 		static inline std::unique_ptr<ComponentArchive> instance;
 		static inline std::once_flag instanceCreationOnceFlag;
 		static inline std::once_flag instanceDestructionOnceFlag;
+		mutable Mutex_t mutex;
 		robin_hood::unordered_flat_map<ComponentID, DynamicComponentData> dynamicComponentDataLUT;
 		robin_hood::unordered_flat_map<Entity, ArchetypeData> archetypeLUT;
 		std::vector<std::pair<Archetype, ChunkList>> chunkListLUT;
