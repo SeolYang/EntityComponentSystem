@@ -20,14 +20,8 @@
     <ClInclude Include="ECS.h">
       <Filter>Sources\ECS</Filter>
     </ClInclude>
-    <ClInclude Include="ECS_Before_Memory_Optimizations.h">
-      <Filter>Sources\ECS</Filter>
-    </ClInclude>
     <ClInclude Include="robin_hood.h">
       <Filter>Sources</Filter>
-    </ClInclude>
-    <ClInclude Include="ECS_MT.h">
-      <Filter>Sources\ECS</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

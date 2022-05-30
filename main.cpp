@@ -1,4 +1,4 @@
-﻿#include "ECS_MT.h"
+﻿#include "ECS.h"
 //#include "ECS_Before_Memory_Optimizations.h"
 #include <cassert>
 #include <array>
