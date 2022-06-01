@@ -50,6 +50,17 @@ namespace sy::utils
 	{
 		return data.find(key) != data.end();
 	}
+
+	inline size_t AlignForwardAdjustment(const size_t offset, size_t alignment) noexcept
+	{
+		const size_t adjustment = alignment - (offset & (alignment - 1));
+		if (adjustment == alignment)
+		{
+			return 0;
+		}
+
+		return adjustment;
+	}
 }
 
 namespace sy
@@ -119,24 +130,24 @@ namespace sy
 	// https://forum.unity.com/threads/is-it-guaranteed-that-random-access-within-a-16kb-chunk-will-not-cause-cache-miss.709940/
 	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
 	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
-	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
+	constexpr size_t CACHE_LINE = 64;
 
 	struct ComponentRange
 	{
 		size_t Offset = 0;
 		size_t Size = 0;
 
-		static void ComponentCopy(void* destEntityAddress, void* srcEntityAddress, ComponentRange destRange, ComponentRange srcRange) noexcept
+		static void ComponentCopy(void* destBaseAddress, void* srcBaseAddress, size_t destComponentIdx, size_t srcComponentIdx, ComponentRange destRange, ComponentRange srcRange) noexcept
 		{
 			assert(destRange.Size == srcRange.Size);
-			void* dest = (void*)((uintptr_t)destEntityAddress + destRange.Offset);
-			void* src = (void*)((uintptr_t)srcEntityAddress + srcRange.Offset);
+			void* dest = (void*)((uintptr_t)destBaseAddress + destRange.Offset + (destComponentIdx * destRange.Size));
+			const void* src = (void*)((uintptr_t)srcBaseAddress + srcRange.Offset + (srcComponentIdx * srcRange.Size));
 			std::memcpy(dest, src, srcRange.Size);
 		}
 
-		static void* ComponentAddress(void* entityOffsetAddress, ComponentRange range) noexcept
+		static void* ComponentAddress(void* baseAddress, size_t componentIdx, ComponentRange range) noexcept
 		{
-			return (void*)((uintptr_t)entityOffsetAddress + range.Offset);
+			return (void*)((uintptr_t)baseAddress + range.Offset + (componentIdx * range.Size));
 		}
 	};
 
@@ -144,13 +155,10 @@ namespace sy
 	{
 		using PoolType = std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>>;
 	public:
-		Chunk(const size_t sizeOfData, const size_t chunkSize = DEFAULT_CHUNK_SIZE, const size_t chunkAlignment = DEFAULT_CHUNK_ALIGNMENT) :
-			mem(_aligned_malloc(chunkSize, chunkAlignment)),
-			sizeOfData(sizeOfData),
+		Chunk(const size_t maxNumOfAllocations) :
+			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, CACHE_LINE)),
 			allocationPool({}),
-			maxNumOfAllocations(DEFAULT_CHUNK_SIZE / sizeOfData),
-			sizeOfChunk(chunkSize),
-			alignmentOfChunk(chunkAlignment)
+			maxNumOfAllocations(maxNumOfAllocations)
 		{
 			for (size_t allocationIndex = 0; allocationIndex < MaxNumOfAllocations(); ++allocationIndex)
 			{
@@ -161,10 +169,7 @@ namespace sy
 		Chunk(Chunk&& rhs) noexcept :
 			mem(std::exchange(rhs.mem, nullptr)),
 			allocationPool(std::move(rhs.allocationPool)),
-			sizeOfData(std::exchange(rhs.sizeOfData, 0)),
-			maxNumOfAllocations(std::exchange(rhs.maxNumOfAllocations, 0)),
-			sizeOfChunk(std::exchange(rhs.sizeOfChunk, 0)),
-			alignmentOfChunk(std::exchange(rhs.alignmentOfChunk, 0))
+			maxNumOfAllocations(std::exchange(rhs.maxNumOfAllocations, 0))
 		{
 		}
 
@@ -183,10 +188,7 @@ namespace sy
 		{
 			mem = std::exchange(rhs.mem, nullptr);
 			allocationPool = std::move(rhs.allocationPool);
-			sizeOfData = std::exchange(rhs.sizeOfData, 0);
 			maxNumOfAllocations = std::exchange(rhs.maxNumOfAllocations, 0);
-			sizeOfChunk = std::exchange(rhs.sizeOfChunk, 0);
-			alignmentOfChunk = std::exchange(rhs.alignmentOfChunk, 0);
 			return (*this);
 		}
 
@@ -206,26 +208,20 @@ namespace sy
 			allocationPool.push(at);
 		}
 
-		void* AddressOf(size_t at) const noexcept
+		void* BaseAddress() const noexcept
 		{
-			assert(NumOfAllocations() > 0);
-			return (void*)((uintptr_t)mem + (at * sizeOfData));
+			return mem;
 		}
 
 		inline bool IsEmpty() const noexcept { return allocationPool.size() == MaxNumOfAllocations(); }
 		inline bool IsFull() const noexcept { return allocationPool.empty(); }
-		inline size_t MaxNumOfAllocations() const noexcept { return maxNumOfAllocations - 1; }
+		inline size_t MaxNumOfAllocations() const noexcept { return maxNumOfAllocations; }
 		inline size_t NumOfAllocations() const noexcept { return MaxNumOfAllocations() - allocationPool.size(); }
-		inline size_t SizeOfChunk() const noexcept { return sizeOfChunk; }
-		inline size_t AlignmentOfChunk() const noexcept { return alignmentOfChunk; }
 
 	private:
 		void* mem;
 		PoolType allocationPool;
-		size_t sizeOfData;
 		size_t maxNumOfAllocations;
-		size_t sizeOfChunk;
-		size_t alignmentOfChunk;
 
 	};
 
@@ -268,13 +264,28 @@ namespace sy
 
 				componentAllocInfos.shrink_to_fit();
 			}
+
 			sizeOfData = offset;
+			// assume component offsets are aligned as cache line. then calculate maximum align adjustment[1, CACHE_LINE-1](Not a optimal)
+			// @TODO	Optimal alignment memory reservation.
+			const size_t actualUsableChunkSize = (DEFAULT_CHUNK_SIZE - ((componentAllocInfos.size() - 1) * (CACHE_LINE-1))); 
+			maxNumOfAllocationsPerChunk = offset == 0 ? 0 : (actualUsableChunkSize / sizeOfData);
+
+			for (size_t idx = 1; idx < componentAllocInfos.size(); ++idx)
+			{
+				const auto& beforeAllocInfo = componentAllocInfos.at(idx - 1);
+				auto& allocInfo = componentAllocInfos.at(idx);
+
+				allocInfo.Range.Offset = beforeAllocInfo.Range.Offset + (maxNumOfAllocationsPerChunk * beforeAllocInfo.Range.Size);
+				allocInfo.Range.Offset += utils::AlignForwardAdjustment(allocInfo.Range.Offset, CACHE_LINE);
+			}
 		}
 
 		ChunkList(ChunkList&& rhs) noexcept :
 			chunks(std::move(rhs.chunks)),
 			componentAllocInfos(std::move(rhs.componentAllocInfos)),
-			sizeOfData(rhs.sizeOfData)
+			sizeOfData(rhs.sizeOfData),
+			maxNumOfAllocationsPerChunk(rhs.maxNumOfAllocationsPerChunk)
 		{
 		}
 
@@ -288,6 +299,7 @@ namespace sy
 			chunks = std::move(rhs.chunks);
 			componentAllocInfos = std::move(rhs.componentAllocInfos);
 			sizeOfData = rhs.sizeOfData;
+			maxNumOfAllocationsPerChunk = rhs.maxNumOfAllocationsPerChunk;
 			return (*this);
 		}
 
@@ -299,7 +311,7 @@ namespace sy
 			const bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
 			if (bDoesNotFoundFreeChunk)
 			{
-				chunks.emplace_back(sizeOfData);
+				chunks.emplace_back(maxNumOfAllocationsPerChunk);
 			}
 
 			Chunk& chunk = chunks.at(freeChunkIndex);
@@ -339,17 +351,10 @@ namespace sy
 			return found != componentAllocInfos.cend();
 		}
 
-		void* AddressOf(const Allocation allocation) const noexcept
+		void* BaseAddressOf(const Allocation allocation) const
 		{
-			const bool bIsValidChunkIndex = allocation.ChunkIndex < chunks.size();
-			assert(bIsValidChunkIndex);
-
-			if (bIsValidChunkIndex)
-			{
-				return chunks.at(allocation.ChunkIndex).AddressOf(allocation.AllocationIndexOfEntity);
-			}
-
-			return nullptr;
+			void* baseAddress = chunks.at(allocation.ChunkIndex).BaseAddress();
+			return baseAddress;
 		}
 
 		void* AddressOf(const Allocation allocation, const ComponentID componentID) const
@@ -360,9 +365,9 @@ namespace sy
 			if (Support(componentID))
 			{
 				const auto componentAllocInfo = AllocationInfoOfComponent(componentID);
-				void* entityAddress = chunks.at(allocation.ChunkIndex).AddressOf(allocation.AllocationIndexOfEntity);
+				void* baseAddress = chunks.at(allocation.ChunkIndex).BaseAddress();
 
-				return ComponentRange::ComponentAddress(entityAddress, componentAllocInfo.Range);
+				return ComponentRange::ComponentAddress(baseAddress, allocation.AllocationIndexOfEntity, componentAllocInfo.Range);
 			}
 
 			return nullptr;
@@ -410,8 +415,8 @@ namespace sy
 
 			if (bIsValid)
 			{
-				void* srcAddress = srcChunkList.AddressOf(srcAllocation);
-				void* destAddress = destChunkList.AddressOf(destAllocation);
+				void* srcAddress = srcChunkList.BaseAddressOf(srcAllocation);
+				void* destAddress = destChunkList.BaseAddressOf(destAllocation);
 				const auto& srcComponentAllocInfos = srcChunkList.componentAllocInfos;
 				const auto& destComponentAllocInfos = destChunkList.componentAllocInfos;
 				for (const auto& srcComponentAllocInfo : srcComponentAllocInfos)
@@ -420,7 +425,7 @@ namespace sy
 					{
 						if (srcComponentAllocInfo.ID == destComponentAllocInfo.ID)
 						{
-							ComponentRange::ComponentCopy(destAddress, srcAddress, destComponentAllocInfo.Range, srcComponentAllocInfo.Range);
+							ComponentRange::ComponentCopy(destAddress, srcAddress, destAllocation.AllocationIndexOfEntity, srcAllocation.AllocationIndexOfEntity, destComponentAllocInfo.Range, srcComponentAllocInfo.Range);
 						}
 					}
 				}
@@ -433,6 +438,7 @@ namespace sy
 		std::vector<Chunk> chunks;
 		std::vector<ComponentAllocationInfo> componentAllocInfos;
 		size_t sizeOfData;
+		size_t maxNumOfAllocationsPerChunk;
 
 	};
 
