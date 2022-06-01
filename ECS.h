@@ -18,7 +18,7 @@
 #include <map>
 #include "robin_hood.h"
 
-#define SY_ECS_THREAD_SAFE true
+#define SY_ECS_THREAD_SAFE false
 
 namespace sy::utils
 {
@@ -445,7 +445,7 @@ namespace sy
 	using Archetype = std::set<ComponentID>;
 
 	/**
-	* @brief	ComponentArchive itself guarantee thread-safety when SY_ECS_THREAD_SAFE is true. But component which stored inside of it is not a thread-safe.
+	* @brief	ComponentArchive itself guarantee thread-safety when SY_ECS_THREAD_SAFE is true. But write to component data which stored inside of chunk is not a thread-safe.
 	*/
 	class ComponentArchive
 	{
@@ -511,7 +511,7 @@ namespace sy
 		ComponentArchive& operator=(const ComponentArchive&) = delete;
 		ComponentArchive& operator=(ComponentArchive&&) = delete;
 
-		~ComponentArchive()
+		~ComponentArchive() noexcept(false)
 		{
 			std::vector<Entity> remainEntities;
 			remainEntities.reserve(archetypeLUT.size());
@@ -864,7 +864,7 @@ namespace sy
 		}
 
 	private:
-		ComponentArchive() noexcept
+		ComponentArchive() noexcept(false)
 		{
 			chunkListLUT.emplace_back(Archetype(), ChunkList({}));
 		}
