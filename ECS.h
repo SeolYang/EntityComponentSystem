@@ -264,9 +264,9 @@ namespace sy
 			}
 
 			sizeOfData = offset;
-			// assume component offsets are aligned as cache line. (Not a optimal)
+			// assume component offsets are aligned as cache line. then calculate maximum align adjustment[1, CACHE_LINE-1](Not a optimal)
 			// @TODO	Optimal alignment memory reservation.
-			const size_t actualUsableChunkSize = (DEFAULT_CHUNK_SIZE - ((componentAllocInfos.size() - 1) * CACHE_LINE)); 
+			const size_t actualUsableChunkSize = (DEFAULT_CHUNK_SIZE - ((componentAllocInfos.size() - 1) * (CACHE_LINE-1))); 
 			maxNumOfAllocationsPerChunk = offset == 0 ? 0 : (actualUsableChunkSize / sizeOfData);
 
 			for (size_t idx = 1; idx < componentAllocInfos.size(); ++idx)
@@ -309,7 +309,7 @@ namespace sy
 			const bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
 			if (bDoesNotFoundFreeChunk)
 			{
-				chunks.emplace_back(sizeOfData);
+				chunks.emplace_back(maxNumOfAllocationsPerChunk);
 			}
 
 			Chunk& chunk = chunks.at(freeChunkIndex);
