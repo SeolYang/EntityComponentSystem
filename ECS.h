@@ -48,6 +48,17 @@ namespace sy::utils
 	{
 		return data.find(key) != data.end();
 	}
+
+	inline size_t AlignForwardAdjustment(const size_t offset, size_t alignment) noexcept
+	{
+		const size_t adjustment = alignment - (offset & (alignment - 1));
+		if (adjustment == alignment)
+		{
+			return 0;
+		}
+
+		return adjustment;
+	}
 }
 
 namespace sy
@@ -117,7 +128,7 @@ namespace sy
 	// https://forum.unity.com/threads/is-it-guaranteed-that-random-access-within-a-16kb-chunk-will-not-cause-cache-miss.709940/
 	constexpr size_t DEFAULT_CHUNK_SIZE = 16384;
 	// https://stackoverflow.com/questions/34860366/why-buffers-should-be-aligned-on-64-byte-boundary-for-best-performance
-	constexpr size_t DEFAULT_CHUNK_ALIGNMENT = 64;
+	constexpr size_t CACHE_LINE = 64;
 
 	struct ComponentRange
 	{
@@ -143,7 +154,7 @@ namespace sy
 		using PoolType = std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>>;
 	public:
 		Chunk(const size_t maxNumOfAllocations) :
-			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_ALIGNMENT)),
+			mem(_aligned_malloc(DEFAULT_CHUNK_SIZE, CACHE_LINE)),
 			allocationPool({}),
 			maxNumOfAllocations(maxNumOfAllocations)
 		{
@@ -253,7 +264,10 @@ namespace sy
 			}
 
 			sizeOfData = offset;
-			maxNumOfAllocationsPerChunk = offset == 0 ? 0 : DEFAULT_CHUNK_SIZE / sizeOfData;
+			// assume component offsets are aligned as cache line. (Not a optimal)
+			// @TODO	Optimal alignment memory reservation.
+			const size_t actualUsableChunkSize = (DEFAULT_CHUNK_SIZE - ((componentAllocInfos.size() - 1) * CACHE_LINE)); 
+			maxNumOfAllocationsPerChunk = offset == 0 ? 0 : (actualUsableChunkSize / sizeOfData);
 
 			for (size_t idx = 1; idx < componentAllocInfos.size(); ++idx)
 			{
@@ -261,6 +275,7 @@ namespace sy
 				auto& allocInfo = componentAllocInfos.at(idx);
 
 				allocInfo.Range.Offset = beforeAllocInfo.Range.Offset + (maxNumOfAllocationsPerChunk * beforeAllocInfo.Range.Size);
+				allocInfo.Range.Offset += utils::AlignForwardAdjustment(allocInfo.Range.Offset, CACHE_LINE);
 			}
 		}
 
