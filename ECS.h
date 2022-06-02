@@ -16,9 +16,8 @@
 #include <mutex>
 #include <shared_mutex>
 #include <map>
+#include <ranges>
 #include "robin_hood.h"
-
-#define SY_ECS_THREAD_SAFE false
 
 namespace sy::utils
 {
@@ -45,12 +44,6 @@ namespace sy::utils
 		return hash;
 	}
 
-	template <typename T, typename Key>
-	bool HasKey(const T& data, const Key& key)
-	{
-		return data.find(key) != data.end();
-	}
-
 	inline size_t AlignForwardAdjustment(const size_t offset, size_t alignment) noexcept
 	{
 		const size_t adjustment = alignment - (offset & (alignment - 1));
@@ -62,6 +55,14 @@ namespace sy::utils
 		return adjustment;
 	}
 }
+
+namespace sy
+{
+	namespace views = std::views;
+	namespace ranges = std::ranges;
+}
+
+#define SY_ECS_THREAD_SAFE false
 
 namespace sy
 {
@@ -79,7 +80,7 @@ namespace sy
 	inline Entity GenerateEntity()
 	{
 		using EntityUnderlyingType = std::underlying_type_t<Entity>;
-		if (USE_RANDOM_NUM_FOR_ENTITY_HANDLE)
+		if constexpr (USE_RANDOM_NUM_FOR_ENTITY_HANDLE)
 		{
 			static thread_local std::mt19937_64 generator(
 				std::hash<std::thread::id>{}(std::this_thread::get_id()));
@@ -93,12 +94,12 @@ namespace sy
 	}
 
 	using ComponentID = uint32_t;
-	constexpr ComponentID INVALID_COMPONET_ID = 0;
+	constexpr ComponentID INVALID_COMPONENT_ID = 0;
 
 	template <ComponentType T>
 	constexpr ComponentID QueryComponentID()
 	{
-		return INVALID_COMPONET_ID;
+		return INVALID_COMPONENT_ID;
 	}
 
 	template <ComponentType T>
@@ -109,7 +110,7 @@ namespace sy
 
 	struct ComponentInfo
 	{
-		ComponentID ID = INVALID_COMPONET_ID;
+		ComponentID ID = INVALID_COMPONENT_ID;
 		std::string Name;
 		size_t Size = 0;
 		size_t Alignment = 1;
@@ -208,15 +209,15 @@ namespace sy
 			allocationPool.push(at);
 		}
 
-		void* BaseAddress() const noexcept
+		[[nodiscard]] void* BaseAddress() const noexcept
 		{
 			return mem;
 		}
 
-		inline bool IsEmpty() const noexcept { return allocationPool.size() == MaxNumOfAllocations(); }
-		inline bool IsFull() const noexcept { return allocationPool.empty(); }
-		inline size_t MaxNumOfAllocations() const noexcept { return maxNumOfAllocations; }
-		inline size_t NumOfAllocations() const noexcept { return MaxNumOfAllocations() - allocationPool.size(); }
+		[[nodiscard]] bool IsEmpty() const noexcept { return allocationPool.size() == MaxNumOfAllocations(); }
+		[[nodiscard]] bool IsFull() const noexcept { return allocationPool.empty(); }
+		[[nodiscard]] size_t MaxNumOfAllocations() const noexcept { return maxNumOfAllocations; }
+		[[nodiscard]] size_t NumOfAllocations() const noexcept { return MaxNumOfAllocations() - allocationPool.size(); }
 
 	private:
 		void* mem;
@@ -233,13 +234,13 @@ namespace sy
 			size_t ChunkIndex = std::numeric_limits<size_t>::max();
 			size_t AllocationIndexOfEntity = std::numeric_limits<size_t>::max();
 
-			inline bool IsFailedToAllocate() const noexcept { return (ChunkIndex == static_cast<size_t>(-1)) || (AllocationIndexOfEntity == static_cast<size_t>(-1)); }
+			[[nodiscard]] bool IsFailedToAllocate() const noexcept { return (ChunkIndex == static_cast<size_t>(-1)) || (AllocationIndexOfEntity == static_cast<size_t>(-1)); }
 		};
 
 		struct ComponentAllocationInfo
 		{
 			ComponentRange Range;
-			ComponentID ID = INVALID_COMPONET_ID;
+			ComponentID ID = INVALID_COMPONENT_ID;
 		};
 
 	public:
@@ -268,7 +269,7 @@ namespace sy
 			sizeOfData = offset;
 			// assume component offsets are aligned as cache line. then calculate maximum align adjustment[1, CACHE_LINE-1](Not a optimal)
 			// @TODO	Optimal alignment memory reservation.
-			const size_t actualUsableChunkSize = (DEFAULT_CHUNK_SIZE - ((componentAllocInfos.size() - 1) * (CACHE_LINE-1))); 
+			const size_t actualUsableChunkSize = (DEFAULT_CHUNK_SIZE - ((componentAllocInfos.size() - 1) * (CACHE_LINE - 1)));
 			maxNumOfAllocationsPerChunk = offset == 0 ? 0 : (actualUsableChunkSize / sizeOfData);
 
 			for (size_t idx = 1; idx < componentAllocInfos.size(); ++idx)
@@ -308,8 +309,7 @@ namespace sy
 		{
 			assert(sizeOfData > 0);
 			const size_t freeChunkIndex = FreeChunkIndex();
-			const bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size();
-			if (bDoesNotFoundFreeChunk)
+			if (const bool bDoesNotFoundFreeChunk = freeChunkIndex >= chunks.size(); bDoesNotFoundFreeChunk)
 			{
 				chunks.emplace_back(maxNumOfAllocationsPerChunk);
 			}
@@ -323,7 +323,7 @@ namespace sy
 			};
 		}
 
-		/** It doesn't call anyof destructor. */
+		/** It does'nt call any destructor. */
 		void Destroy(const Allocation allocation)
 		{
 			assert(!allocation.IsFailedToAllocate());
@@ -341,9 +341,9 @@ namespace sy
 			return (*found);
 		}
 
-		bool Support(const ComponentID componentID) const
+		[[nodiscard]] bool Support(const ComponentID componentID) const
 		{
-			auto found = std::find_if(componentAllocInfos.cbegin(), componentAllocInfos.cend(), [componentID](const ComponentAllocationInfo& info)
+			const auto found = std::find_if(componentAllocInfos.cbegin(), componentAllocInfos.cend(), [componentID](const ComponentAllocationInfo& info)
 				{
 					return componentID == info.ID;
 				});
@@ -351,13 +351,13 @@ namespace sy
 			return found != componentAllocInfos.cend();
 		}
 
-		void* BaseAddressOf(const Allocation allocation) const
+		[[nodiscard]] void* BaseAddressOf(const Allocation allocation) const
 		{
 			void* baseAddress = chunks.at(allocation.ChunkIndex).BaseAddress();
 			return baseAddress;
 		}
 
-		void* AddressOf(const Allocation allocation, const ComponentID componentID) const
+		[[nodiscard]] void* AddressOf(const Allocation allocation, const ComponentID componentID) const
 		{
 			const bool bIsValidChunkIndex = allocation.ChunkIndex < chunks.size();
 			assert(bIsValidChunkIndex);
@@ -373,13 +373,13 @@ namespace sy
 			return nullptr;
 		}
 
-		bool IsChunkFull(const size_t chunkIndex) const noexcept
+		[[nodiscard]] bool IsChunkFull(const size_t chunkIndex) const noexcept
 		{
 			assert(chunkIndex < chunks.size());
 			return chunks.at(chunkIndex).IsFull();
 		}
 
-		inline size_t FreeChunkIndex() const noexcept
+		[[nodiscard]] size_t FreeChunkIndex() const noexcept
 		{
 			size_t freeChunkIndex = 0;
 			for (; freeChunkIndex < chunks.size(); ++freeChunkIndex)
@@ -489,9 +489,9 @@ namespace sy
 			T& Reference() { return *archive.Get<T>(entity); }
 			const T& Reference() const { return *archive.Get<T>(entity); }
 
-			Entity Owner() const noexcept { return entity; }
-			bool IsValid() const noexcept { return archive.Contains<T>(entity); }
-			constexpr ComponentID ID() const noexcept { return QueryComponentID<T>(); }
+			[[nodiscard]] Entity Owner() const noexcept { return entity; }
+			[[nodiscard]] bool IsValid() const noexcept { return archive.Contains<T>(entity); }
+			[[nodiscard]] constexpr ComponentID ID() const noexcept { return QueryComponentID<T>(); }
 
 		private:
 			const ComponentArchive& archive;
@@ -554,7 +554,7 @@ namespace sy
 			};
 		}
 
-		bool Contains(const Entity entity, const ComponentID componentID) const
+		[[nodiscard]] bool Contains(const Entity entity, const ComponentID componentID) const
 		{
 #if SY_ECS_THREAD_SAFE
 			ReadOnlyLock_t lock{ mutex };
@@ -563,19 +563,19 @@ namespace sy
 			if (foundArchetypeItr != archetypeLUT.end())
 			{
 				const auto& foundArchetypeData = (foundArchetypeItr->second);
-				return utils::HasKey(ReferenceArchetype(foundArchetypeData.ArchetypeIndex), componentID);
+				return ReferenceArchetype(foundArchetypeData.ArchetypeIndex).contains(componentID);
 			}
 
 			return false;
 		}
 
 		template <typename T>
-		bool Contains(const Entity entity) const
+		[[nodiscard]] bool Contains(const Entity entity) const
 		{
 			return Contains(entity, QueryComponentID<T>());
 		}
 
-		bool IsSameArchetype(const Entity lhs, const Entity rhs) const
+		[[nodiscard]] bool IsSameArchetype(const Entity lhs, const Entity rhs) const
 		{
 #if SY_ECS_THREAD_SAFE
 			ReadOnlyLock_t lock{ mutex };
@@ -593,12 +593,12 @@ namespace sy
 			return lhsItr == rhsItr;
 		}
 
-		Archetype QueryArchetype(const Entity entity) const
+		[[nodiscard]] Archetype QueryArchetype(const Entity entity) const
 		{
 #if SY_ECS_THREAD_SAFE
 			ReadOnlyLock_t lock{ mutex };
 #endif
-			if (utils::HasKey(archetypeLUT, entity))
+			if (archetypeLUT.contains(entity))
 			{
 				return ReferenceArchetype(archetypeLUT.find(entity)->second.ArchetypeIndex);
 			}
@@ -615,7 +615,7 @@ namespace sy
 			Component* result = nullptr;
 			if (!ContainsUnsafe(entity, componentID))
 			{
-				if (!utils::HasKey(archetypeLUT, entity))
+				if (!archetypeLUT.contains(entity))
 				{
 					archetypeLUT[entity] = ArchetypeData();
 				}
@@ -651,7 +651,7 @@ namespace sy
 		template <ComponentType T, typename... Args>
 		bool Attach(const Entity entity, Args&&... args)
 		{
-			constexpr bool bShoudCallDefaultConstructor = (sizeof...(Args) == 0);
+			constexpr bool bShouldCallDefaultConstructor = (sizeof...(Args) == 0);
 			constexpr ComponentID componentID = QueryComponentID<T>();
 			Component* result = nullptr;
 
@@ -660,7 +660,7 @@ namespace sy
 #endif
 			if (!ContainsUnsafe(entity, componentID))
 			{
-				if (!utils::HasKey(archetypeLUT, entity))
+				if (!archetypeLUT.contains(entity))
 				{
 					archetypeLUT[entity] = ArchetypeData();
 				}
@@ -685,7 +685,7 @@ namespace sy
 				result = static_cast<Component*>(ReferenceChunkList(newChunkListIdx).AddressOf(newAllocation, componentID));
 				if (result != nullptr)
 				{
-					if (bShoudCallDefaultConstructor)
+					if (bShouldCallDefaultConstructor)
 					{
 						const DynamicComponentData& dynamicComponentData = dynamicComponentDataLUT[componentID];
 						dynamicComponentData.DefaultConstructor(result);
@@ -746,12 +746,12 @@ namespace sy
 		* @brief	Return Deferred Access Handle Object.
 		*/
 		template <ComponentType T>
-		ComponentHandle<T> GetHandle(const Entity entity) const noexcept
+		[[nodiscard]] ComponentHandle<T> GetHandle(const Entity entity) const noexcept
 		{
 			return ComponentHandle<T>(*this, entity);
 		}
 
-		Component* Get(const Entity entity, const ComponentID componentID) const
+		[[nodiscard]] Component* Get(const Entity entity, const ComponentID componentID) const
 		{
 #if SY_ECS_THREAD_SAFE
 			ReadOnlyLock_t lock{ mutex };
@@ -775,7 +775,7 @@ namespace sy
 		}
 
 		template <ComponentType T>
-		T* Get(const Entity entity) const
+		[[nodiscard]] T* Get(const Entity entity) const
 		{
 			return reinterpret_cast<T*>(Get(entity, QueryComponentID<T>()));
 		}
@@ -785,7 +785,7 @@ namespace sy
 #if SY_ECS_THREAD_SAFE
 			WriteLock_t lock(mutex);
 #endif
-			if (utils::HasKey(archetypeLUT, entity))
+			if (archetypeLUT.contains(entity))
 			{
 				const auto& archetypeData = archetypeLUT[entity];
 				const Archetype& archetype = ReferenceArchetype(archetypeData.ArchetypeIndex);
@@ -808,7 +808,7 @@ namespace sy
 		}
 
 		/**
-		* Trying to degragment 'entire' chunk list and chunks(except not fragmented chunk which is full)
+		* Trying to de-fragment 'entire' chunk list and chunks(except not fragmented chunk which is full)
 		* It maybe will nullyfies any references, pointers that acquired from Attach and Get methods.
 		*/
 		void Defragmentation()
@@ -855,9 +855,9 @@ namespace sy
 			chunkListLUT.shrink_to_fit();
 
 			size_t reduced = 0;
-			for (auto& chunkListPair : chunkListLUT)
+			for (auto& chunkList : chunkListLUT | views::values)
 			{
-				reduced += chunkListPair.second.ShrinkToFit();
+				reduced += chunkList.ShrinkToFit();
 			}
 
 			return reduced;
@@ -888,7 +888,7 @@ namespace sy
 			return idx;
 		}
 
-		size_t FindChunkList(const Archetype& archetype)
+		[[nodiscard]] size_t FindChunkList(const Archetype& archetype) const
 		{
 			size_t idx = 0;
 			for (; idx < chunkListLUT.size(); ++idx)
@@ -902,30 +902,30 @@ namespace sy
 			return idx;
 		}
 
-		bool ContainsUnsafe(const Entity entity, const ComponentID componentID) const
+		[[nodiscard]] bool ContainsUnsafe(const Entity entity, const ComponentID componentID) const
 		{
 			const auto foundArchetypeItr = archetypeLUT.find(entity);
 			if (foundArchetypeItr != archetypeLUT.end())
 			{
 				const auto& foundArchetypeData = (foundArchetypeItr->second);
-				return utils::HasKey(ReferenceArchetype(foundArchetypeData.ArchetypeIndex), componentID);
+				return ReferenceArchetype(foundArchetypeData.ArchetypeIndex).contains(componentID);
 			}
 
 			return false;
 		}
 
 		/**
-		* To prevent vector reallocations, always ref chunk list through this method.
+		* To prevent vector re-allocations, always ref chunk list through this method.
 		* Do not reference ChunkList directly when exist possibility to chunkListLUT get modified.
 		*/
-		inline ChunkList& ReferenceChunkList(const size_t idx)
+		ChunkList& ReferenceChunkList(const size_t idx)
 		{
 			return chunkListLUT.at(idx).second;
 		}
 
-		inline const Archetype& ReferenceArchetype(const size_t idx) const { return chunkListLUT.at(idx).first; }
+		[[nodiscard]] const Archetype& ReferenceArchetype(const size_t idx) const { return chunkListLUT.at(idx).first; }
 
-		std::vector<ComponentInfo> RetrieveComponentInfosFromArchetype(const Archetype& archetype) const
+		[[nodiscard]] std::vector<ComponentInfo> RetrieveComponentInfosFromArchetype(const Archetype& archetype) const
 		{
 			std::vector<ComponentInfo> res{ };
 			res.reserve(archetype.size());
